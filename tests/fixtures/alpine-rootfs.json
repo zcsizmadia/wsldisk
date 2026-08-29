@@ -1,0 +1,23 @@
+{
+  "$comment": [
+    "Rootfs used by the integration suite. Pinned by SHA256 so a CI run can never",
+    "silently pick up a different image, and small enough (~3 MB) that importing",
+    "and deleting a throwaway distro per run stays cheap.",
+    "Bump deliberately: change version and both digests together, then re-run the",
+    "integration job."
+  ],
+  "distribution": "alpine",
+  "version": "3.22.4",
+  "branch": "v3.22",
+  "mirror": "https://dl-cdn.alpinelinux.org/alpine",
+  "artifacts": {
+    "x86_64": {
+      "file": "alpine-minirootfs-3.22.4-x86_64.tar.gz",
+      "sha256": "0737c622ddefa7c91767ce8ab5dd4722f265cd580b21332ec5f22cfe54a84251"
+    },
+    "aarch64": {
+      "file": "alpine-minirootfs-3.22.4-aarch64.tar.gz",
+      "sha256": "fc11cf987b37b2e57969cea7e0b8df0777e572d41fe20731630c1e926a8a07a2"
+    }
+  }
+}
