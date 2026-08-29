@@ -12,8 +12,11 @@ if(NOT CMAKE_CXX_COMPILER_ID MATCHES "Clang")
         "(current compiler: ${CMAKE_CXX_COMPILER_ID}). Use the x64-coverage preset.")
 endif()
 
+# Note there is no matching `target_link_options`: lld-link rejects
+# `-fprofile-instr-generate` as an unknown argument, and /WX makes that fatal.
+# The objects carry a `/DEFAULTLIB:clang_rt.profile-*` directive already, so the
+# link only needs the runtime search path that CompilerFlags.cmake adds.
 target_compile_options(wsldisk_flags INTERFACE -fprofile-instr-generate -fcoverage-mapping)
-target_link_options(wsldisk_flags INTERFACE -fprofile-instr-generate)
 
 # The profile runtime writes one .profraw per process; %p keeps parallel ctest runs apart.
 set(WSLDISK_PROFILE_DIR "${CMAKE_BINARY_DIR}/profraw")

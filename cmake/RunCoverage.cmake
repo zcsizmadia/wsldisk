@@ -24,27 +24,33 @@ foreach(bin IN LISTS all_binaries)
     list(APPEND object_args -object "${bin}")
 endforeach()
 
-# Only src/ is in scope: tests, spikes and vcpkg dependencies are excluded.
-set(ignore_args
-    -ignore-filename-regex=[/\\](tests|spikes|vcpkg_installed|_deps)[/\\]
-    -ignore-filename-regex=[/\\]Program\ Files)
+# Only src/ is in scope: tests, spikes, vcpkg dependencies and the toolchain's own
+# headers are excluded. The regex must stay a single argument -- it contains
+# alternation and a space -- so it is built as one quoted variable.
+set(ignore_regex "[\\\\/](tests|spikes|vcpkg_installed|_deps)[\\\\/]|[\\\\/]Program Files|[\\\\/]llvm[\\\\/]")
+set(ignore_arg "-ignore-filename-regex=${ignore_regex}")
 
 execute_process(
     COMMAND "${LLVM_COV}" export "${primary}" ${object_args}
-            -instr-profile "${profdata}" -format=lcov ${ignore_args}
+            -instr-profile "${profdata}" -format=lcov "${ignore_arg}"
     OUTPUT_FILE "${BINARY_DIR}/coverage.lcov"
     COMMAND_ERROR_IS_FATAL ANY)
 
 execute_process(
     COMMAND "${LLVM_COV}" show "${primary}" ${object_args}
             -instr-profile "${profdata}" -format=html -show-branches=count
-            -output-dir "${BINARY_DIR}/coverage-html" ${ignore_args}
+            -output-dir "${BINARY_DIR}/coverage-html" "${ignore_arg}"
     COMMAND_ERROR_IS_FATAL ANY)
 
+# Relative paths from the source directory: a POSIX-flavoured Python (msys, Git
+# Bash) mangles an absolute `C:/...` or `C:\...` argument, and CMake may well find
+# one of those before a native interpreter.
+file(RELATIVE_PATH lcov_report "${SOURCE_DIR}" "${BINARY_DIR}/coverage.lcov")
+
 execute_process(
-    COMMAND "${PYTHON}" "${SOURCE_DIR}/scripts/check-coverage.py"
-            "${BINARY_DIR}/coverage.lcov"
+    COMMAND "${PYTHON}" "scripts/check-coverage.py" "${lcov_report}"
             --lines 100 --branches 100 --functions 100
+    WORKING_DIRECTORY "${SOURCE_DIR}"
     COMMAND_ERROR_IS_FATAL ANY)
 
 message(STATUS "Coverage report: ${BINARY_DIR}/coverage-html/index.html")

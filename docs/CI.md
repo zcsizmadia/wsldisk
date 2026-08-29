@@ -86,3 +86,39 @@ design above, not an oversight.
 - **The integration job runs on hosted `windows-2025`** and is gated for fork
   pull requests behind the `safe-to-test` label. Whether nested virtualisation on
   hosted runners is reliable enough to keep it there is the open M0 spike.
+
+### Corrections after the first CI run
+
+The first run of these workflows failed six of fifteen checks. What changed, and
+why, so the reasoning is not lost:
+
+- **arm64 legs could not find a compiler.** `ilammy/msvc-dev-cmd` was given
+  `arch: arm64`, which selects the arm64-*hosted* toolset; the runners are x64,
+  so nothing was installed and `cl` never reached PATH. The cross-compile form is
+  `amd64_arm64`, which `setup-toolchain` now derives from its `architecture` input.
+- **Coverage could not link.** CMake drives clang-cl targets through `lld-link`
+  rather than the clang driver, so `-fprofile-instr-generate` arrived as an
+  unknown linker argument and `/WX` made it fatal. The objects already request
+  the profile runtime through a `/DEFAULTLIB:` directive, so the fix is to put
+  clang's compiler-rt directory on the library search path and pass no link flag
+  at all. `-print-runtime-dir` names a per-target layout some LLVM packages do
+  not ship, so `lib/windows` is tried as well.
+- **Codecov failed the job.** No `CODECOV_TOKEN` is configured, and the step ran
+  with `fail_ci_if_error: true`. Codecov is reporting, not gating --
+  `check-coverage.py` is the gate and has already run by then -- so the upload is
+  now skipped without a token and never fails the job.
+- **The ASan job now uses MSVC, not clang-cl.** clang-cl's Windows ASan
+  miscompiles exception handling on the toolchains we build with: a twenty-line
+  program that throws and catches faults with an access violation inside the
+  catch block, using clang-cl's own driver. MSVC's ASan handles it, links
+  statically with `/MT`, and accepts the debug CRT, so no special vcpkg triplet is
+  needed. `_DISABLE_STRING_ANNOTATION` / `_DISABLE_VECTOR_ANNOTATION` are defined
+  because the vcpkg dependencies are not built with ASan and the STL's container
+  annotations are an all-or-nothing choice for the whole image.
+- **The integration job stays on hosted runners.** It passed on
+  `windows-2025` on the first attempt, which answers the M0 spike; the
+  self-hosted fallback is not needed.
+
+`llvm-cov` also reports "3 functions have mismatched data" while merging. Those
+are inline functions from excluded third-party headers; every file under `src/`
+is present in the report with its full function list.

@@ -3,12 +3,14 @@
 #include <catch2/catch_test_macros.hpp>
 
 #include <cstring>
+#include <memory>
 #include <string>
 
 #include "errors.h"
 #include "platform/win32_api.h"
 
 using wsldisk::ErrorCode;
+using wsldisk::IFileSystem;
 using wsldisk::platform::ScopedWin32Api;
 using wsldisk::platform::Win32Api;
 using wsldisk::platform::Win32FileSystem;
@@ -232,6 +234,20 @@ TEST_CASE("volume_info describes the volume holding a path", "[platform][filesys
         CHECK(info.error().code == ErrorCode::Generic);
         CHECK(info.error().message.find("volume information") != std::string::npos);
     }
+}
+
+TEST_CASE("Win32FileSystem can be owned and destroyed through the interface", "[platform][filesystem]") {
+    // Operations hold an IFileSystem&, and something has to own the concrete
+    // object; a non-virtual destructor here would leak or corrupt on teardown.
+    std::unique_ptr<IFileSystem> fs = std::make_unique<Win32FileSystem>();
+
+    Win32Api api = all_failing(NO_ERROR);
+    api.get_file_attributes = [](LPCWSTR) -> DWORD { return FILE_ATTRIBUTE_NORMAL; };
+    const ScopedWin32Api scoped{api};
+    CHECK(fs->exists("C:\\anything"));
+
+    fs.reset();
+    CHECK(fs == nullptr);
 }
 
 TEST_CASE("ReFS is an acceptable home for a VHDX, FAT is not", "[platform][filesystem]") {

@@ -96,8 +96,8 @@
     },
     {
       "name": "x64-asan",
-      "displayName": "x64 Debug + AddressSanitizer (clang-cl)",
-      "inherits": "clang-cl",
+      "displayName": "x64 Debug + AddressSanitizer (MSVC)",
+      "inherits": "msvc",
       "architecture": { "value": "x64", "strategy": "external" },
       "cacheVariables": {
         "VCPKG_TARGET_TRIPLET": "x64-windows-static",

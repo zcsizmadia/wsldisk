@@ -53,3 +53,9 @@ TEST_CASE("a status can carry a failure with no value", "[errors]") {
     const wsldisk::Status ok{};
     CHECK(ok.has_value());
 }
+
+TEST_CASE("an unrecognised code falls back to the generic name", "[errors]") {
+    // Not reachable from the enum, but reachable from a cast or from a number
+    // parsed out of older or newer --json output.
+    CHECK(wsldisk::error_code_name(static_cast<ErrorCode>(9999)) == "generic");
+}

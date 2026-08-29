@@ -12,6 +12,7 @@ function(wsldisk_add_test_suite name label)
     set_target_properties(${name} PROPERTIES FOLDER "tests")
 
     set(discover_properties LABELS ${label})
+
     if(WSLDISK_ENABLE_COVERAGE)
         # One profile per process, so parallel ctest runs do not clobber each other.
         list(APPEND discover_properties

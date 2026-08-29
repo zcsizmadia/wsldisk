@@ -1,6 +1,43 @@
 # One interface target carrying the project-wide compile/link settings.
 # Everything under src/ links it; third-party code never does.
 
+# Locates the directory holding clang's compiler-rt libraries (the ASan and
+# profile runtimes).
+#
+# CMake links clang-cl targets with lld-link directly rather than through the
+# clang driver, so the driver never gets to add its own library search path: an
+# instrumented build fails at link time with an undefined `__asan_*` or
+# `__llvm_profile_*` symbol unless the directory is added explicitly.
+#
+# `-print-runtime-dir` names the per-target layout, which some LLVM packages do
+# not ship; those keep the older `lib/windows` directory instead, so both are
+# tried.
+function(wsldisk_find_clang_runtime_dir out_var)
+    execute_process(
+        COMMAND "${CMAKE_CXX_COMPILER}" -print-runtime-dir
+        OUTPUT_VARIABLE printed_dir
+        OUTPUT_STRIP_TRAILING_WHITESPACE
+        ERROR_QUIET
+        RESULT_VARIABLE print_result)
+
+    set(candidates "")
+    if(print_result EQUAL 0 AND NOT printed_dir STREQUAL "")
+        file(TO_CMAKE_PATH "${printed_dir}" printed_dir)
+        list(APPEND candidates "${printed_dir}")
+        get_filename_component(runtime_parent "${printed_dir}" DIRECTORY)
+        list(APPEND candidates "${runtime_parent}/windows")
+    endif()
+
+    foreach(candidate IN LISTS candidates)
+        if(EXISTS "${candidate}")
+            set(${out_var} "${candidate}" PARENT_SCOPE)
+            return()
+        endif()
+    endforeach()
+
+    set(${out_var} "" PARENT_SCOPE)
+endfunction()
+
 add_library(wsldisk_flags INTERFACE)
 add_library(wsldisk::flags ALIAS wsldisk_flags)
 
@@ -50,12 +87,40 @@ if(MSVC)
     endif()
 endif()
 
-if(WSLDISK_ENABLE_ASAN)
-    if(NOT MSVC)
-        message(FATAL_ERROR "WSLDISK_ENABLE_ASAN is only wired up for MSVC/clang-cl.")
+if(WSLDISK_ENABLE_COVERAGE)
+    wsldisk_find_clang_runtime_dir(WSLDISK_CLANG_RUNTIME_DIR)
+    if(WSLDISK_CLANG_RUNTIME_DIR STREQUAL "")
+        message(FATAL_ERROR
+            "Could not locate clang's compiler-rt directory. An instrumented "
+            "build cannot link without it; check the LLVM installation.")
     endif()
+    target_link_directories(wsldisk_flags INTERFACE "${WSLDISK_CLANG_RUNTIME_DIR}")
+    message(STATUS "clang runtime libraries: ${WSLDISK_CLANG_RUNTIME_DIR}")
+endif()
+
+if(WSLDISK_ENABLE_ASAN)
+    # MSVC's AddressSanitizer, not clang-cl's. clang-cl's Windows ASan miscompiles
+    # exception handling on the toolchains we build with: a plain throw/catch
+    # faults with an access violation inside the catch block. MSVC's works, links
+    # statically with /MT, and accepts the debug CRT, so the ASan build needs no
+    # special triplet.
+    if(NOT MSVC OR CMAKE_CXX_COMPILER_ID MATCHES "Clang")
+        message(FATAL_ERROR
+            "WSLDISK_ENABLE_ASAN requires the MSVC compiler; use the x64-asan preset.")
+    endif()
+
     target_compile_options(wsldisk_flags INTERFACE /fsanitize=address)
     # ASan is incompatible with edit-and-continue debug info and with /INCREMENTAL.
     target_compile_options(wsldisk_flags INTERFACE $<$<CONFIG:Debug>:/Zi>)
     target_link_options(wsldisk_flags INTERFACE /INCREMENTAL:NO)
+
+    # The MSVC STL's ASan container annotations are an all-or-nothing choice for
+    # everything linked into the image, and the vcpkg dependencies are not built
+    # with ASan -- linking mismatched objects fails on `/failifmismatch:
+    # annotate_string`. Turning the annotations off costs the detection of
+    # overflows *within* a std::string or std::vector buffer; heap and stack
+    # overflows and use-after-free are all still caught.
+    target_compile_definitions(wsldisk_flags INTERFACE
+        _DISABLE_STRING_ANNOTATION=1
+        _DISABLE_VECTOR_ANNOTATION=1)
 endif()

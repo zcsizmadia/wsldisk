@@ -26,14 +26,19 @@ set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 # and keeps compile_commands.json free of the `@...modmap` arguments that
 # clang-tidy cannot consume.
 set(CMAKE_CXX_SCAN_FOR_MODULES OFF)
-set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
-
-set_property(GLOBAL PROPERTY USE_FOLDERS ON)
-
 option(WSLDISK_BUILD_TESTS "Build the test suites" ON)
 option(WSLDISK_ENABLE_COVERAGE "Instrument for clang-cl source-based coverage" OFF)
 option(WSLDISK_ENABLE_ASAN "Build with AddressSanitizer" OFF)
 option(WSLDISK_WARNINGS_AS_ERRORS "Treat compiler warnings as errors" ON)
+
+set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
+
+if(WSLDISK_ENABLE_ASAN)
+    # /RTC1 is incompatible with the sanitizer.
+    string(REPLACE "/RTC1" "" CMAKE_CXX_FLAGS_DEBUG "${CMAKE_CXX_FLAGS_DEBUG}")
+endif()
+
+set_property(GLOBAL PROPERTY USE_FOLDERS ON)
 
 include(cmake/CompilerFlags.cmake)
 include(cmake/Coverage.cmake)
