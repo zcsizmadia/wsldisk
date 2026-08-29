@@ -33,6 +33,8 @@ VHDX files without knowing it.
 4. **Fast**: compaction via the API is I/O bound only; move is a file move + registry write.
 5. **Scriptable & observable**: `--json`, meaningful exit codes, `--verbose` tracing.
 6. Distributable as a single `wsldisk.exe` via winget/scoop/GitHub Releases.
+7. **Fully tested: 100% line/branch/function coverage enforced in CI**, plus contract, integration and fuzz tests. See [docs/TESTING.md](docs/TESTING.md).
+8. **Complete GitHub Actions automation**: lint, multi-toolchain build, coverage gate, ASan, integration, CodeQL, nightly fuzz, signed releases with winget/scoop publishing. See [docs/CI.md](docs/CI.md).
 
 ### Non-goals (v1)
 
@@ -206,10 +208,18 @@ Every operation is modeled as: `Plan` (preflight, produces a list of steps + est
 
 ### 5.5 Testing strategy
 
-- **Unit**: operations against fakes (registry with canned distros, fake virtual disk that tracks sizes).
-- **Integration** (Windows runner, needs WSL): create a throwaway Alpine distro via `wsl --import` from a tiny rootfs checked into test fixtures (or downloaded and cached), fill it with data, delete, run `compact`, assert size dropped; `move` it to a temp dir and back; `shrink`/`grow`; `snapshot`/`restore`. GitHub-hosted `windows-2025` runners support nested virtualization and WSL2 — validate early (M0); fall back to a self-hosted runner if not.
-- **VHDX-only tests** without WSL: create VHDX with `CreateVirtualDisk`, format via `diskpart`-free path (attach + `FormatEx` is messy — instead just test compact/resize on raw VHDX with written zero/non-zero blocks).
-- **Property/fuzz**: registry value parsing, `wsl.exe` output parsing (UTF-16LE with BOM, localized text — never parse localized strings; use `--json`-less structured sources where possible).
+Full policy in [docs/TESTING.md](docs/TESTING.md). Summary:
+
+- **100% line, branch and function coverage is a hard CI gate** (`llvm-cov` via clang-cl; OpenCppCoverage as secondary). Achievable because all Win32 calls go through a replaceable `Win32Api` table in `platform/`, so every error branch is reachable by fault injection.
+- **Unit**: operations against fakes (`FakeRegistry`, `FakeVirtualDisk`, `FakeWslHost`, `FakeFileSystem`, `FakeClock`); golden files for table/JSON output.
+- **Platform contract**: `platform/` wrappers against real Win32 on temp VHDX files and a scratch registry key — no WSL required, runs on every PR.
+- **Integration** (needs WSL): throwaway Alpine distro imported per run; scenarios for every command including failure/rollback paths. Hosted `windows-2025` if nested virtualisation works (M0 spike), else self-hosted.
+- **Fuzz** (nightly, libFuzzer): registry values, `wsl.exe` output (UTF-16LE/BOM/localized), manifests, size strings.
+- **Mutation testing** weekly, advisory.
+
+### 5.5.1 CI/CD
+
+Full design in [docs/CI.md](docs/CI.md): `ci.yml` (lint, MSVC+clang-cl × x64+arm64 × Debug+Release, coverage gate, ASan, integration, package), `nightly.yml` (WSL version matrix, fuzz, large-disk perf, mutation), `release.yml` (SBOM, Sigstore + attestations, Authenticode when available, GitHub Release, winget/scoop PRs, post-install smoke), `codeql.yml`, Dependabot + vcpkg baseline bumps. All actions SHA-pinned, least-privilege permissions.
 
 ### 5.6 Distribution
 

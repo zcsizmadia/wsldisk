@@ -36,6 +36,8 @@ tested, native tool that covers the whole lifecycle of a WSL2 disk.
 3. **Single static binary.** `wsldisk.exe`, distributable via `winget` and `scoop`.
 4. **Scriptable.** `--json` output on every command; exit codes that mean something.
 5. **Works on Windows Home** — the Virtual Disk Service API is available everywhere Hyper-V's PowerShell module is not.
+6. **Fully tested.** 100% line/branch coverage enforced in CI, plus real-Win32 contract tests, end-to-end integration tests on throwaway distros, and nightly fuzzing. This tool touches root filesystems; nothing untested ships.
+7. **Fully automated.** GitHub Actions for lint, multi-toolchain builds, coverage gate, ASan, CodeQL, integration, and signed releases published to winget and scoop.
 
 ## Tech stack
 
@@ -46,6 +48,8 @@ Modern C++ (C++20/23), CMake + vcpkg, [WIL](https://github.com/microsoft/wil), [
 - [PLAN.md](PLAN.md) — detailed project plan: scope, user stories, technical approach, risks, decisions
 - [ROADMAP.md](ROADMAP.md) — milestones and task checklists
 - [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) — module layout, key Windows APIs, workflows
+- [docs/TESTING.md](docs/TESTING.md) — testing policy, 100% coverage gate, fakes, scenarios
+- [docs/CI.md](docs/CI.md) — GitHub workflows: ci, nightly, release, codeql, dependabot
 - [docs/RESEARCH.md](docs/RESEARCH.md) — prior art and reference material
 - [CONTRIBUTING.md](CONTRIBUTING.md) — dev environment, coding standards
 

@@ -32,11 +32,24 @@ ctest --preset x64-debug -L integration
 - Every user-facing error carries a remedy
 - `.clang-format` is authoritative; run before committing
 
+## Tests & coverage
+
+- **100% line, branch and function coverage is required.** CI fails otherwise. See [docs/TESTING.md](docs/TESTING.md).
+- Run locally before pushing:
+  ```powershell
+  cmake --preset x64-coverage && cmake --build --preset x64-coverage
+  ctest --preset x64-coverage
+  python scripts/check-coverage.py build/x64-coverage/coverage.lcov --lines 100 --branches 100 --functions 100
+  ```
+- Contract tests (`-L contract`) hit real Win32 on temp files and a scratch registry key; they need no WSL and must stay hermetic (clean up everything they create).
+- Coverage exclusions (`LCOV_EXCL_*`) are for provably unreachable code only and require a justifying comment.
+
 ## Commits & PRs
 
 - Conventional Commits (`feat:`, `fix:`, `docs:`, `test:`, `chore:`)
 - One logical change per PR; link the roadmap item or issue
-- CI must be green; a maintainer reviews data-safety-relevant changes (anything under `ops/`)
+- CI must be green (lint, all build legs, coverage gate, ASan, CodeQL); a maintainer reviews data-safety-relevant changes (anything under `ops/`)
+- Workflows are described in [docs/CI.md](docs/CI.md); changes to `.github/` need `actionlint` to pass and actions pinned by SHA
 
 ## Safety rule
 
