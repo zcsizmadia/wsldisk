@@ -3,6 +3,7 @@
 /out/
 /bin/
 /obj/
+/staging/
 CMakeUserPresets.json
 compile_commands.json
 
@@ -22,6 +23,18 @@ compile_commands.json
 *.tar
 *.tar.gz
 Testing/
+/tests/fixtures/cache/
+/test-results/
+
+# Tooling downloaded on demand
+/actionlint-bin/
+actionlint.zip
+
+# Coverage
+*.profraw
+*.profdata
+coverage.lcov
+/coverage-html/
 
 # OS
 Thumbs.db

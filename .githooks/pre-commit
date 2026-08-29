@@ -1,0 +1,41 @@
+#!/bin/sh
+# wsldisk pre-commit hook: catch the two lint failures that are cheap to check
+# locally and annoying to discover in CI.
+#
+# Install with:  pwsh ./scripts/install-hooks.ps1
+# Bypass with:   git commit --no-verify
+
+set -e
+
+staged_sources=$(git diff --cached --name-only --diff-filter=ACMR |
+    grep -E '^(src|tests)/.*\.(cpp|h|in)$' || true)
+
+if [ -n "$staged_sources" ]; then
+    if command -v clang-format >/dev/null 2>&1; then
+        # shellcheck disable=SC2086
+        if ! clang-format --dry-run --Werror $staged_sources; then
+            echo ""
+            echo "pre-commit: clang-format would change staged files."
+            echo "            run  clang-format -i $staged_sources"
+            exit 1
+        fi
+    else
+        echo "pre-commit: clang-format not on PATH, skipping the format check."
+    fi
+fi
+
+# Test names beginning with `--` break CTest, which passes the name to Catch2 as
+# a filter and has it parsed as one of Catch2's own options.
+staged_tests=$(git diff --cached --name-only --diff-filter=ACMR |
+    grep -E '^tests/.*\.cpp$' || true)
+
+for file in $staged_tests; do
+    if grep -nE 'TEST_CASE\("--' "$file"; then
+        echo ""
+        echo "pre-commit: $file has a test case whose name starts with '--'."
+        echo "            CTest cannot run it; rename it (see CONTRIBUTING.md)."
+        exit 1
+    fi
+done
+
+exit 0

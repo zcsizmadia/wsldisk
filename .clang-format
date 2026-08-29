@@ -1,0 +1,59 @@
+---
+Language: Cpp
+BasedOnStyle: Google
+Standard: Latest
+
+ColumnLimit: 110
+IndentWidth: 4
+AccessModifierOffset: -4
+TabWidth: 4
+UseTab: Never
+
+AllowShortFunctionsOnASingleLine: Inline
+AllowShortIfStatementsOnASingleLine: Never
+AllowShortLoopsOnASingleLine: false
+AllowShortCaseLabelsOnASingleLine: false
+
+BreakBeforeBraces: Attach
+BreakConstructorInitializers: BeforeColon
+ConstructorInitializerIndentWidth: 4
+PackConstructorInitializers: NextLine
+
+DerivePointerAlignment: false
+PointerAlignment: Left
+ReferenceAlignment: Left
+QualifierAlignment: Left
+
+EmptyLineBeforeAccessModifier: LogicalBlock
+SeparateDefinitionBlocks: Always
+FixNamespaceComments: true
+NamespaceIndentation: None
+
+IncludeBlocks: Regroup
+IncludeCategories:
+  # Windows headers must come first and in dependency order.
+  - Regex: '^<windows\.h>$'
+    Priority: 1
+    SortPriority: 1
+  - Regex: '^<(virtdisk|wslapi|shellapi|shlobj|winreg|winioctl|taskschd|restartmanager)\.h>$'
+    Priority: 1
+    SortPriority: 2
+  - Regex: '^<wil/'
+    Priority: 2
+  - Regex: '^<(catch2|CLI|nlohmann|toml|fmt|indicators)/'
+    Priority: 3
+  - Regex: '^<.*\.h>$'
+    Priority: 4
+  - Regex: '^<.*>$'
+    Priority: 5
+  - Regex: '^"wsldisk/'
+    Priority: 6
+  - Regex: '.*'
+    Priority: 7
+
+SortIncludes: CaseSensitive
+SortUsingDeclarations: true
+InsertNewlineAtEOF: true
+KeepEmptyLinesAtTheStartOfBlocks: false
+MaxEmptyLinesToKeep: 1
+SpacesBeforeTrailingComments: 2
