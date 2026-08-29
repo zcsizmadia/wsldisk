@@ -1,0 +1,17 @@
+#include "version.h"
+
+namespace wsldisk {
+
+std::string_view version() noexcept {
+    return "@PROJECT_VERSION@";
+}
+
+std::string_view git_revision() noexcept {
+    return "@WSLDISK_GIT_REVISION@";
+}
+
+std::string_view version_banner() noexcept {
+    return "wsldisk @PROJECT_VERSION@ (@WSLDISK_GIT_REVISION@)";
+}
+
+}  // namespace wsldisk
