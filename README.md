@@ -29,6 +29,8 @@ tested, native tool that covers the whole lifecycle of a WSL2 disk.
 | `wsldisk doctor` | Detect the `--allow-unsafe` sparse foot-gun, orphaned VHDX files, distros with wrong `BasePath`, disks near capacity |
 | `wsldisk mount <file.vhdx>` | Attach any VHDX read-only into a distro for forensics/recovery |
 
+**Scope:** WSL2 only. WSL1 distributions have no virtual disk; `wsldisk list` shows them, every other command refuses with a hint to convert (`wsl --set-version <distro> 2`).
+
 ## Design principles
 
 1. **Native.** Direct use of `virtdisk.h`, the registry and the WSL COM/`wslapi` surface. No `diskpart` scraping, no Hyper-V module dependency, no PowerShell runtime.

@@ -42,7 +42,7 @@ Goal: de-risk the unknowns, have a compiling skeleton and CI.
 Goal: the 80% use case — see where the space is and get it back — shippable.
 
 - [ ] `IRegistry`, `IVirtualDisk`, `IWslHost`, `IFileSystem` interfaces + Win32 implementations + fakes
-- [ ] Distro enumeration (registry) with WSL1/WSL2 detection and default marker
+- [ ] Distro enumeration (registry) with WSL1/WSL2 detection and default marker; WSL1 entries listed but refused by all other commands (exit 3, conversion hint)
 - [ ] Size probes: virtual size, actual on-disk (`GetCompressedFileSize`), sparse detection, guest `df` (`--probe`)
 - [ ] `wsldisk list` table + `--json` + `--scan` for orphaned VHDX
 - [ ] `Plan → Execute → Verify` operation framework with progress sink and undo stack

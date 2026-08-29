@@ -39,7 +39,7 @@ VHDX files without knowing it.
 ### Non-goals (v1)
 
 - GUI (a tray app / WinUI front-end is a possible v2 — the core is designed as a library to allow it).
-- Managing WSL1 distros (they are directories, not VHDX; `list` will show them, other commands refuse).
+- **Managing WSL1 distros.** WSL1 has no virtual disk — the rootfs is a plain NTFS directory — so compact/shrink/grow/snapshot/mount have no meaning there, and "move" is just a folder copy. WSL1 is also legacy (WSL2 is the default; Docker Desktop requires it). Scope: `list` shows WSL1 distros with `Version 1` and blank disk columns; every other command exits 3 with "X is a WSL1 distribution; wsldisk manages WSL2 virtual disks. Convert with `wsl --set-version X 2`." Nothing else. (Decision D8.)
 - Replacing `wsl.exe` for install/uninstall/run.
 - Managing generic Hyper-V VMs' disks (may work incidentally via `mount`/`compact --file`, not a target).
 - Linux-side agent that must be installed inside the distro. All guest work is done by
@@ -252,6 +252,7 @@ Full design in [docs/CI.md](docs/CI.md): `ci.yml` (lint, MSVC+clang-cl × x64+ar
 | D5 | Never enable sparse mode on behalf of the user | Data-corruption reports; compact is the safe alternative |
 | D6 | `copy` snapshot backend default; differencing disks experimental | Simplicity and safety first |
 | D7 | MIT license | Maximum adoption; compatible with WIL (MIT) and all chosen deps |
+| D8 | WSL2 only; WSL1 is detect-and-refuse | No VHDX to manage; legacy and shrinking user base; avoids a second code path and test-matrix leg for zero functional gain |
 
 ## 8. Open questions
 
