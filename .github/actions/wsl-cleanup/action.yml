@@ -1,0 +1,41 @@
+name: Remove throwaway WSL2 distros
+description: >
+  Unregisters every distribution whose name starts with `wsldisk-test-` and
+  deletes its files. Pair with `.github/actions/wsl-fixture` and always guard the
+  step with `if: always()` so a failed or cancelled job still cleans up -- a
+  leaked distro poisons every later run on a self-hosted runner.
+
+inputs:
+  location:
+    description: Directory the scratch distro was imported into, removed after
+      unregistering. Optional.
+    required: false
+    default: ''
+
+runs:
+  using: composite
+  steps:
+    - name: Unregister scratch distros
+      shell: pwsh
+      run: |
+        if (-not (Get-Command wsl.exe -ErrorAction SilentlyContinue)) {
+          Write-Host "wsl.exe not present; nothing to clean up."
+          exit 0
+        }
+
+        wsl.exe --shutdown 2>&1 | Write-Host
+
+        # `wsl --list --quiet` is UTF-16LE; strip the NULs before matching.
+        $listing = (wsl.exe --list --quiet) -join "`n"
+        $names = ($listing -replace "`0", '') -split "`r?`n" |
+            ForEach-Object { $_.Trim() } |
+            Where-Object { $_ -like 'wsldisk-test-*' }
+
+        foreach ($distro in $names) {
+          Write-Host "unregistering $distro"
+          wsl.exe --unregister $distro 2>&1 | Write-Host
+        }
+
+        if ('${{ inputs.location }}') {
+          Remove-Item -Recurse -Force '${{ inputs.location }}' -ErrorAction SilentlyContinue
+        }

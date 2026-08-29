@@ -1,0 +1,39 @@
+name: stale
+
+on:
+  schedule:
+    - cron: '0 6 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  stale:
+    name: mark stale issues and pull requests
+    runs-on: ubuntu-latest
+    permissions:
+      issues: write
+      pull-requests: write
+    steps:
+      - uses: actions/stale@5bef64f19d7facfb25b37b414482c7164d639639  # v9
+        with:
+          days-before-issue-stale: 90
+          days-before-issue-close: 14
+          days-before-pr-stale: 45
+          days-before-pr-close: 14
+          stale-issue-label: stale
+          stale-pr-label: stale
+          exempt-issue-labels: 'pinned,roadmap,security,good first issue'
+          exempt-pr-labels: 'pinned,security'
+          stale-issue-message: >
+            This issue has had no activity for 90 days. If it is still relevant,
+            add a comment (ideally with `wsldisk --version` and the exact command
+            you ran) and it will stay open. Otherwise it closes in 14 days.
+          stale-pr-message: >
+            This pull request has had no activity for 45 days. Rebase or comment
+            to keep it open; otherwise it closes in 14 days.
+          close-issue-message: >
+            Closing after 14 more days of inactivity. Comment to reopen.
+          close-pr-message: >
+            Closing after 14 more days of inactivity. Reopen when you pick it up again.

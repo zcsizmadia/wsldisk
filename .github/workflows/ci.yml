@@ -1,0 +1,293 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+env:
+  VCPKG_FEATURE_FLAGS: manifests,versions,binarycaching
+
+jobs:
+  lint:
+    name: lint
+    runs-on: windows-2025
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09  # v5
+
+      - uses: ./.github/actions/setup-toolchain
+        with:
+          llvm: 'true'
+
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1  # v6
+        with:
+          python-version: '3.12'
+
+      - name: clang-format
+        shell: pwsh
+        run: |
+          $files = Get-ChildItem -Recurse -Path src, tests -Include *.cpp, *.h, *.in |
+              ForEach-Object { $_.FullName }
+          clang-format --dry-run --Werror @files
+
+      # Single-config generator on purpose: a multi-config compile_commands.json
+      # lists every source once per configuration, which would triple lint time.
+      - name: Configure (for compile_commands.json)
+        shell: pwsh
+        run: cmake --preset x64-lint
+
+      # Advisory until the LLVM/MSVC-STL combination is stable: clang-tidy 18
+      # crashes parsing the C++23 headers shipped with MSVC 14.4x, which makes
+      # its findings unreliable rather than merely noisy. Tracked as an issue;
+      # drop `continue-on-error` once a pinned LLVM analyses the tree cleanly.
+      - name: clang-tidy (advisory)
+        continue-on-error: true
+        shell: pwsh
+        run: |
+          $files = Get-ChildItem -Recurse -Path src -Include *.cpp | ForEach-Object { $_.FullName }
+          # The unused-argument diagnostics come from the driver, before the check
+          # filter in .clang-tidy can suppress them.
+          clang-tidy -p build/x64-lint --extra-arg=-Wno-unused-command-line-argument @files
+
+      - name: markdownlint
+        uses: DavidAnson/markdownlint-cli2-action@992badcdf24e3b8eb7e87ff9287fe931bcb00c6e  # v20
+        with:
+          globs: |
+            **/*.md
+            !build/**
+
+      - name: actionlint
+        shell: pwsh
+        run: |
+          $version = '1.7.7'
+          $url = "https://github.com/rhysd/actionlint/releases/download/v$version/actionlint_${version}_windows_amd64.zip"
+          Invoke-WebRequest -Uri $url -OutFile actionlint.zip -UseBasicParsing
+          Expand-Archive actionlint.zip -DestinationPath actionlint-bin
+          ./actionlint-bin/actionlint.exe -color
+
+      - name: Python lint for the coverage gate
+        shell: pwsh
+        run: |
+          python -m pip install --quiet ruff
+          python -m ruff check scripts/
+
+  build-test:
+    name: ${{ matrix.toolchain }} ${{ matrix.architecture }} ${{ matrix.configuration }}
+    runs-on: windows-2025
+    strategy:
+      fail-fast: false
+      matrix:
+        toolchain: [msvc, clang-cl]
+        architecture: [x64, arm64]
+        configuration: [Debug, Release]
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09  # v5
+
+      - uses: ./.github/actions/setup-toolchain
+        with:
+          architecture: ${{ matrix.architecture }}
+          llvm: ${{ matrix.toolchain == 'clang-cl' }}
+
+      - name: Resolve the preset
+        id: preset
+        shell: pwsh
+        run: |
+          $preset = switch ('${{ matrix.toolchain }}-${{ matrix.architecture }}') {
+            'msvc-x64'      { 'x64-debug' }
+            'msvc-arm64'    { 'arm64-release' }
+            'clang-cl-x64'  { 'x64-clang' }
+            'clang-cl-arm64' { 'arm64-clang' }
+          }
+          "name=$preset" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+
+      - name: Configure
+        shell: pwsh
+        run: cmake --preset ${{ steps.preset.outputs.name }}
+
+      - name: Build
+        shell: pwsh
+        run: cmake --build build/${{ steps.preset.outputs.name }} --config ${{ matrix.configuration }}
+
+      # arm64 binaries are cross-compiled on an x64 runner, so they can be built
+      # but not executed. Coverage of the arm64 leg comes from the nightly job on
+      # real hardware (see ROADMAP.md M4).
+      - name: Unit tests
+        if: matrix.architecture == 'x64'
+        shell: pwsh
+        run: ctest --test-dir build/${{ steps.preset.outputs.name }} -C ${{ matrix.configuration }} -L unit --output-on-failure
+
+      - name: Contract tests
+        if: matrix.architecture == 'x64'
+        shell: pwsh
+        run: ctest --test-dir build/${{ steps.preset.outputs.name }} -C ${{ matrix.configuration }} -L contract --output-on-failure
+
+      - name: Upload test results
+        if: always() && matrix.architecture == 'x64'
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4
+        with:
+          name: test-results-${{ matrix.toolchain }}-${{ matrix.architecture }}-${{ matrix.configuration }}
+          path: build/${{ steps.preset.outputs.name }}/test-results/*.xml
+          if-no-files-found: warn
+
+  coverage:
+    name: coverage gate
+    runs-on: windows-2025
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09  # v5
+
+      - uses: ./.github/actions/setup-toolchain
+        with:
+          llvm: 'true'
+
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1  # v6
+        with:
+          python-version: '3.12'
+
+      - name: Configure
+        shell: pwsh
+        run: cmake --preset x64-coverage
+
+      - name: Build
+        shell: pwsh
+        run: cmake --build build/x64-coverage --config Debug
+
+      # The `coverage` target runs ctest, merges the profiles, writes the lcov and
+      # HTML reports and fails if any of the three thresholds is missed.
+      - name: Run tests and enforce 100% coverage
+        shell: pwsh
+        run: cmake --build build/x64-coverage --config Debug --target coverage
+
+      - name: Upload the HTML report
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4
+        with:
+          name: coverage-html
+          path: build/x64-coverage/coverage-html
+          if-no-files-found: warn
+
+      - name: Upload to Codecov
+        if: always()
+        uses: codecov/codecov-action@0fb7174895f61a3b6b78fc075e0cd60383518dac  # v5
+        with:
+          files: build/x64-coverage/coverage.lcov
+          fail_ci_if_error: true
+          token: ${{ secrets.CODECOV_TOKEN }}
+
+  asan:
+    name: AddressSanitizer
+    runs-on: windows-2025
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09  # v5
+
+      - uses: ./.github/actions/setup-toolchain
+        with:
+          llvm: 'true'
+
+      - name: Configure
+        shell: pwsh
+        run: cmake --preset x64-asan
+
+      - name: Build
+        shell: pwsh
+        run: cmake --build build/x64-asan --config Debug
+
+      - name: Unit and contract tests under ASan
+        shell: pwsh
+        run: ctest --test-dir build/x64-asan -C Debug -L "unit|contract" --output-on-failure
+
+  integration:
+    name: integration (WSL2)
+    runs-on: windows-2025
+    # Forks cannot reach the WSL fixture cache or secrets, and importing distros
+    # on a shared runner is worth gating; maintainers opt a PR in with a label.
+    if: >-
+      github.event_name != 'pull_request' ||
+      github.event.pull_request.head.repo.full_name == github.repository ||
+      contains(github.event.pull_request.labels.*.name, 'safe-to-test')
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09  # v5
+
+      - uses: ./.github/actions/setup-toolchain
+
+      - name: Configure
+        shell: pwsh
+        run: cmake --preset x64-debug
+
+      - name: Build
+        shell: pwsh
+        run: cmake --build build/x64-debug --config Debug
+
+      - id: fixture
+        uses: ./.github/actions/wsl-fixture
+
+      - name: Integration tests
+        shell: pwsh
+        run: ctest --test-dir build/x64-debug -C Debug -L integration --output-on-failure
+
+      - name: Clean up scratch distros
+        if: always()
+        uses: ./.github/actions/wsl-cleanup
+        with:
+          location: ${{ steps.fixture.outputs.location }}
+
+  package:
+    name: package ${{ matrix.architecture }}
+    runs-on: windows-2025
+    strategy:
+      fail-fast: false
+      matrix:
+        architecture: [x64, arm64]
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09  # v5
+
+      - uses: ./.github/actions/setup-toolchain
+        with:
+          architecture: ${{ matrix.architecture }}
+
+      - name: Resolve the preset
+        id: preset
+        shell: pwsh
+        run: |
+          $preset = if ('${{ matrix.architecture }}' -eq 'x64') { 'x64-release' } else { 'arm64-release' }
+          "name=$preset" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+
+      - name: Build Release
+        shell: pwsh
+        run: |
+          cmake --preset ${{ steps.preset.outputs.name }}
+          cmake --build build/${{ steps.preset.outputs.name }} --config Release
+
+      - name: Smoke test
+        if: matrix.architecture == 'x64'
+        shell: pwsh
+        run: |
+          $exe = "build/${{ steps.preset.outputs.name }}/src/cli/Release/wsldisk.exe"
+          & $exe --version
+          if ($LASTEXITCODE -ne 0) { throw "wsldisk --version exited with $LASTEXITCODE" }
+
+      - name: Zip
+        shell: pwsh
+        run: |
+          $staging = 'staging'
+          New-Item -ItemType Directory -Force -Path $staging | Out-Null
+          Copy-Item "build/${{ steps.preset.outputs.name }}/src/cli/Release/wsldisk.exe" $staging
+          Copy-Item LICENSE, README.md $staging
+          $zip = "wsldisk-${{ matrix.architecture }}.zip"
+          Compress-Archive -Path "$staging/*" -DestinationPath $zip -Force
+          (Get-FileHash $zip -Algorithm SHA256).Hash.ToLower() + "  $zip" |
+              Out-File -FilePath SHA256SUMS -Encoding ascii
+
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4
+        with:
+          name: wsldisk-${{ matrix.architecture }}
+          path: |
+            wsldisk-${{ matrix.architecture }}.zip
+            SHA256SUMS

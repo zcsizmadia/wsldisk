@@ -1,0 +1,91 @@
+name: Set up the wsldisk toolchain
+description: >
+  MSVC (or clang-cl) developer environment, CMake, Ninja, optional LLVM tools,
+  and a vcpkg checkout pinned to the manifest baseline with a warm binary cache.
+
+inputs:
+  architecture:
+    description: Target architecture for the MSVC toolset (x64 or arm64).
+    required: false
+    default: x64
+  llvm:
+    description: >
+      Install the standalone LLVM toolchain. Required for the coverage and ASan
+      jobs (llvm-profdata, llvm-cov) and for clang-tidy in the lint job.
+    required: false
+    default: 'false'
+  llvm-version:
+    description: LLVM version to install when `llvm` is true. Pinned so a new
+      release cannot change coverage numbers or clang-tidy findings overnight.
+    required: false
+    default: '20.1.8'
+
+outputs:
+  vcpkg-root:
+    description: Path to the bootstrapped vcpkg checkout.
+    value: ${{ steps.vcpkg.outputs.root }}
+
+runs:
+  using: composite
+  steps:
+    - name: Set up the MSVC environment
+      uses: ilammy/msvc-dev-cmd@0b201ec74fa43914dc39ae48a89fd1d8cb592756  # v1
+      with:
+        arch: ${{ inputs.architecture }}
+
+    - name: Install LLVM
+      if: inputs.llvm == 'true'
+      shell: pwsh
+      run: |
+        choco install llvm --version=${{ inputs.llvm-version }} --allow-downgrade -y --no-progress
+        "$env:ProgramFiles\LLVM\bin" | Out-File -FilePath $env:GITHUB_PATH -Append -Encoding utf8
+
+    - name: Read the vcpkg baseline from the manifest
+      id: baseline
+      shell: pwsh
+      run: |
+        # The workflow and the manifest must never drift; there is one source of truth.
+        $baseline = (Get-Content vcpkg.json -Raw | ConvertFrom-Json).'builtin-baseline'
+        if (-not $baseline) { throw "vcpkg.json has no builtin-baseline" }
+        "commit=$baseline" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+
+    - name: Check out vcpkg at the baseline
+      shell: pwsh
+      run: |
+        # A full clone: vcpkg needs history to check out a port at a pinned version.
+        if (-not (Test-Path "${{ runner.temp }}/vcpkg")) {
+          git clone https://github.com/microsoft/vcpkg "${{ runner.temp }}/vcpkg"
+        }
+        git -C "${{ runner.temp }}/vcpkg" fetch --depth 1 origin ${{ steps.baseline.outputs.commit }}
+        git -C "${{ runner.temp }}/vcpkg" checkout ${{ steps.baseline.outputs.commit }}
+
+    - name: Restore the vcpkg binary cache
+      uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830  # v4
+      with:
+        path: ${{ runner.temp }}/vcpkg-binary-cache
+        key: >-
+          vcpkg-${{ runner.os }}-${{ inputs.architecture }}-${{ steps.baseline.outputs.commit }}-${{ hashFiles('vcpkg.json') }}
+        restore-keys: |
+          vcpkg-${{ runner.os }}-${{ inputs.architecture }}-${{ steps.baseline.outputs.commit }}-
+          vcpkg-${{ runner.os }}-${{ inputs.architecture }}-
+
+    - name: Bootstrap vcpkg
+      id: vcpkg
+      shell: pwsh
+      run: |
+        New-Item -ItemType Directory -Force -Path "${{ runner.temp }}/vcpkg-binary-cache" | Out-Null
+        & "${{ runner.temp }}/vcpkg/bootstrap-vcpkg.bat" -disableMetrics
+        "VCPKG_ROOT=${{ runner.temp }}/vcpkg" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+        "VCPKG_DEFAULT_BINARY_CACHE=${{ runner.temp }}/vcpkg-binary-cache" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+        "${{ runner.temp }}/vcpkg" | Out-File -FilePath $env:GITHUB_PATH -Append -Encoding utf8
+        "root=${{ runner.temp }}/vcpkg" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+
+    - name: Report the toolchain
+      shell: pwsh
+      run: |
+        foreach ($tool in 'cmake', 'ninja', 'cl', 'clang-cl', 'clang-tidy', 'llvm-cov', 'llvm-profdata') {
+          $found = Get-Command $tool -ErrorAction SilentlyContinue
+          $where = if ($found) { $found.Source } else { '(not found)' }
+          Write-Host ("{0,-14} {1}" -f $tool, $where)
+        }
+        cmake --version

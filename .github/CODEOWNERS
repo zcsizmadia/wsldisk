@@ -1,0 +1,11 @@
+# Default owner for everything.
+*                       @zcsizmadia
+
+# Anything that can rewrite a user's root filesystem gets a deliberate review.
+/src/lib/ops/           @zcsizmadia
+/src/lib/platform/      @zcsizmadia
+
+# The safety net itself.
+/tests/                 @zcsizmadia
+/scripts/check-coverage.py @zcsizmadia
+/.github/               @zcsizmadia
