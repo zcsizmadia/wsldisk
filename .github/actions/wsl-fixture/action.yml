@@ -1,0 +1,64 @@
+name: Provide a throwaway WSL2 distro
+description: >
+  Makes sure WSL2 is installed, fetches the SHA256-pinned Alpine rootfs and
+  imports it as a scratch distribution.
+
+  Composite actions cannot register post steps, so every job that uses this must
+  pair it with `.github/actions/wsl-cleanup` guarded by `if: always()`.
+
+inputs:
+  name:
+    description: Name to register the scratch distro under. Must start with
+      `wsldisk-test-` so the cleanup sweep can recognise it.
+    required: false
+    default: wsldisk-test-${{ github.run_id }}
+  architecture:
+    description: Rootfs architecture (x86_64 or aarch64).
+    required: false
+    default: x86_64
+
+outputs:
+  distro:
+    description: Name of the imported distribution.
+    value: ${{ inputs.name }}
+  location:
+    description: Directory holding the distribution's VHDX.
+    value: ${{ steps.import.outputs.location }}
+
+runs:
+  using: composite
+  steps:
+    - name: Ensure WSL2 is present
+      shell: pwsh
+      run: |
+        # `--no-distribution` installs the platform without pulling Ubuntu; the
+        # scratch rootfs below is the only distro the tests should ever see.
+        if (-not (Get-Command wsl.exe -ErrorAction SilentlyContinue)) {
+          throw "wsl.exe is not on PATH; this runner cannot host the integration suite."
+        }
+        wsl.exe --install --no-distribution --no-launch 2>&1 | Write-Host
+        wsl.exe --update 2>&1 | Write-Host
+        wsl.exe --version 2>&1 | Write-Host
+        wsl.exe --set-default-version 2 2>&1 | Write-Host
+
+    - name: Cache the pinned rootfs
+      uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830  # v4
+      with:
+        path: tests/fixtures/cache
+        key: alpine-rootfs-${{ inputs.architecture }}-${{ hashFiles('tests/fixtures/alpine-rootfs.json') }}
+
+    - name: Import the scratch distro
+      id: import
+      shell: pwsh
+      run: |
+        $rootfs = & ./scripts/fetch-fixtures.ps1 -Architecture '${{ inputs.architecture }}'
+        $location = Join-Path $env:RUNNER_TEMP '${{ inputs.name }}'
+        New-Item -ItemType Directory -Force -Path $location | Out-Null
+        wsl.exe --import '${{ inputs.name }}' $location $rootfs --version 2
+        if ($LASTEXITCODE -ne 0) { throw "wsl --import failed with exit code $LASTEXITCODE" }
+        wsl.exe -d '${{ inputs.name }}' --exec /bin/true
+        if ($LASTEXITCODE -ne 0) { throw "the imported distro does not boot" }
+        "location=$location" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+        "WSLDISK_TEST_DISTRO=${{ inputs.name }}" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+        "WSLDISK_INTEGRATION=1" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+

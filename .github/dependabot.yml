@@ -1,0 +1,40 @@
+version: 2
+
+updates:
+  # vcpkg has no Dependabot ecosystem; the manifest baseline is bumped weekly by
+  # .github/workflows/vcpkg-baseline.yml instead.
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+    labels:
+      - dependencies
+      - area:ci
+    commit-message:
+      prefix: "chore(deps)"
+    groups:
+      actions:
+        patterns:
+          - "*"
+
+  # The composite actions have their own `uses:` entries to keep pinned.
+  - package-ecosystem: github-actions
+    directory: /.github/actions/setup-toolchain
+    schedule:
+      interval: weekly
+    labels:
+      - dependencies
+      - area:ci
+    commit-message:
+      prefix: "chore(deps)"
+
+  - package-ecosystem: github-actions
+    directory: /.github/actions/wsl-fixture
+    schedule:
+      interval: weekly
+    labels:
+      - dependencies
+      - area:ci
+    commit-message:
+      prefix: "chore(deps)"

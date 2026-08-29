@@ -1,0 +1,48 @@
+# Path-based PR labels. Consumed by .github/workflows/labeler.yml.
+
+"area:platform":
+  - changed-files:
+      - any-glob-to-any-file:
+          - src/lib/platform/**
+          - tests/contract/**
+
+"area:ops":
+  - changed-files:
+      - any-glob-to-any-file:
+          - src/lib/ops/**
+
+"area:model":
+  - changed-files:
+      - any-glob-to-any-file:
+          - src/lib/model/**
+
+"area:cli":
+  - changed-files:
+      - any-glob-to-any-file:
+          - src/cli/**
+
+"area:build":
+  - changed-files:
+      - any-glob-to-any-file:
+          - CMakeLists.txt
+          - CMakePresets.json
+          - cmake/**
+          - vcpkg.json
+          - "**/CMakeLists.txt"
+
+"area:ci":
+  - changed-files:
+      - any-glob-to-any-file:
+          - .github/**
+          - scripts/**
+
+"area:tests":
+  - changed-files:
+      - any-glob-to-any-file:
+          - tests/**
+
+docs:
+  - changed-files:
+      - any-glob-to-any-file:
+          - "**/*.md"
+          - docs/**

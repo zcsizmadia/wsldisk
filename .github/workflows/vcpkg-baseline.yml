@@ -1,0 +1,69 @@
+name: vcpkg-baseline
+
+# Dependabot has no vcpkg ecosystem, so the manifest baseline is bumped here
+# instead: once a week, open a PR moving `builtin-baseline` to vcpkg's current
+# HEAD and let the normal CI matrix decide whether the new port versions are
+# acceptable.
+
+on:
+  schedule:
+    - cron: '0 5 * * 1'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  bump:
+    name: bump the vcpkg baseline
+    runs-on: windows-2025
+    permissions:
+      contents: write
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09  # v5
+
+      - uses: ./.github/actions/setup-toolchain
+
+      - name: Update the baseline
+        id: update
+        shell: pwsh
+        run: |
+          $before = (Get-Content vcpkg.json -Raw | ConvertFrom-Json).'builtin-baseline'
+          git -C "$env:VCPKG_ROOT" fetch origin master
+          git -C "$env:VCPKG_ROOT" checkout FETCH_HEAD
+          & "$env:VCPKG_ROOT/bootstrap-vcpkg.bat" -disableMetrics
+          vcpkg x-update-baseline
+          $after = (Get-Content vcpkg.json -Raw | ConvertFrom-Json).'builtin-baseline'
+
+          "before=$before" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+          "after=$after" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+          "changed=$($before -ne $after)" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+
+      - name: Verify the tree still builds and passes
+        if: steps.update.outputs.changed == 'True'
+        shell: pwsh
+        run: |
+          cmake --preset x64-debug
+          cmake --build build/x64-debug --config Debug
+          ctest --test-dir build/x64-debug -C Debug -L "unit|contract" --output-on-failure
+
+      - name: Open a pull request
+        if: steps.update.outputs.changed == 'True'
+        uses: peter-evans/create-pull-request@22a9089034f40e5a961c8808d113e2c98fb63676  # v7
+        with:
+          branch: chore/vcpkg-baseline
+          commit-message: "chore(deps): bump vcpkg baseline to ${{ steps.update.outputs.after }}"
+          title: "chore(deps): bump vcpkg baseline"
+          labels: dependencies
+          body: |
+            Moves the vcpkg manifest baseline forward.
+
+            | | commit |
+            |---|---|
+            | before | `${{ steps.update.outputs.before }}` |
+            | after | `${{ steps.update.outputs.after }}` |
+
+            Unit and contract tests were run against the new baseline before this
+            PR was opened; the full matrix runs here as usual.
+          delete-branch: true

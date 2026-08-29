@@ -1,0 +1,38 @@
+name: Feature request
+description: A command or behaviour wsldisk should have
+labels: [enhancement, needs-triage]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: The problem
+      description: >
+        What are you trying to do, and what makes it hard today? Describe the
+        situation, not the solution.
+    validations:
+      required: true
+
+  - type: textarea
+    id: proposal
+    attributes:
+      label: What you would like wsldisk to do
+      description: A command line, and what it should print or change.
+      render: text
+    validations:
+      required: true
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: What you do instead today
+      description: The PowerShell script, `diskpart` ritual or manual steps this would replace.
+
+  - type: checkboxes
+    id: scope
+    attributes:
+      label: Scope check
+      options:
+        - label: I read the non-goals in PLAN.md §2 and this is not one of them.
+          required: true
+        - label: I checked ROADMAP.md and this is not already planned.
+          required: true

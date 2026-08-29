@@ -1,0 +1,65 @@
+name: Bug report
+description: Something wsldisk did wrong
+labels: [bug, needs-triage]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        **If a distribution lost data, stop using the machine's WSL until you
+        have a copy of the VHDX**, then file this. Anything exploitable goes to
+        the private advisory form instead (see the link on the previous screen).
+
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened
+      description: What you expected, and what you got instead.
+    validations:
+      required: true
+
+  - type: textarea
+    id: command
+    attributes:
+      label: Command and output
+      description: >
+        The exact command line and its full output. Re-run with `-v` if you can;
+        `--json` output is even better. Paths are fine to redact.
+      render: text
+    validations:
+      required: true
+
+  - type: input
+    id: version
+    attributes:
+      label: wsldisk version
+      description: Output of `wsldisk --version`.
+      placeholder: wsldisk 0.1.0 (abc1234)
+    validations:
+      required: true
+
+  - type: textarea
+    id: environment
+    attributes:
+      label: Environment
+      description: >
+        Output of `wsl --version` and `winver`, whether the prompt was elevated,
+        which distribution, and where its disk lives.
+      render: text
+    validations:
+      required: true
+
+  - type: textarea
+    id: doctor
+    attributes:
+      label: wsldisk doctor
+      description: Output of `wsldisk doctor`, if the command exists in your version.
+      render: text
+
+  - type: checkboxes
+    id: confirmations
+    attributes:
+      label: Before filing
+      options:
+        - label: I searched existing issues.
+          required: true
+        - label: I can reproduce this on a throwaway distribution, or I have described why not.
