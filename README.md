@@ -2,7 +2,13 @@
 
 > Compact, shrink, move, inspect and snapshot WSL2 virtual disks — from one native, dependency-free Windows CLI.
 
-**Status:** planning / pre-alpha. Nothing is implemented yet. See [PLAN.md](PLAN.md) and [ROADMAP.md](ROADMAP.md).
+[![ci](https://github.com/zcsizmadia/wsldisk/actions/workflows/ci.yml/badge.svg)](https://github.com/zcsizmadia/wsldisk/actions/workflows/ci.yml)
+[![codeql](https://github.com/zcsizmadia/wsldisk/actions/workflows/codeql.yml/badge.svg)](https://github.com/zcsizmadia/wsldisk/actions/workflows/codeql.yml)
+[![license: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+
+**Status:** pre-alpha. No command is implemented yet — M0 (build, test and CI
+foundation) is landing; the first usable release is M1 (`list`, `info`,
+`compact`, `trim`, `orphans`). See [PLAN.md](PLAN.md) and [ROADMAP.md](ROADMAP.md).
 
 ## Why
 
@@ -51,6 +57,22 @@ Full command tree and per-command specs in [PLAN.md](PLAN.md) §4.
 ## Tech stack
 
 Modern C++ (C++20/23), CMake + vcpkg, [WIL](https://github.com/microsoft/wil), [CLI11](https://github.com/CLIUtils/CLI11), [fmt](https://github.com/fmtlib/fmt), Catch2. Details in [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
+
+## Building from source
+
+```powershell
+git clone https://github.com/microsoft/vcpkg C:\src\vcpkg   # full clone, not --depth 1
+C:\src\vcpkg\bootstrap-vcpkg.bat
+
+git clone https://github.com/zcsizmadia/wsldisk
+cd wsldisk
+. .\scripts\dev-shell.ps1
+cmake --preset x64-debug
+cmake --build --preset x64-debug
+ctest --preset x64-debug
+```
+
+Details and the full preset list are in [CONTRIBUTING.md](CONTRIBUTING.md).
 
 ## Documents
 

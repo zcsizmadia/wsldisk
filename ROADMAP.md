@@ -11,27 +11,31 @@ Legend: `[ ]` todo · `[~]` in progress · `[x]` done
 Goal: de-risk the unknowns, have a compiling skeleton and CI.
 
 **Repo & tooling**
-- [ ] CMake presets (`x64-debug`, `x64-release`, `arm64-release`), vcpkg manifest, Ninja
-- [ ] `libwsldisk` static lib + `wsldisk` exe + `tests` targets; `wsldisk --version` works
-- [ ] `.clang-format`, `.clang-tidy`, `.editorconfig`, pre-commit hook script
-- [ ] `ci.yml`: lint job (clang-format, clang-tidy, actionlint, markdownlint); build-test matrix MSVC + clang-cl × x64 + arm64 × Debug + Release; JUnit test reports
-- [ ] `ci.yml`: **coverage job with 100% line/branch/function gate** (`scripts/check-coverage.py`), Codecov upload + PR diff comment, HTML artifact — required check from day one
-- [ ] `ci.yml`: ASan job (required), package job (Release zips + SHA256SUMS)
-- [ ] `Win32Api` fault-injection table in `platform/` so every error branch is testable
-- [ ] Test skeleton: `tests/unit` (Catch2 + fakes), `tests/contract` (real Win32, temp VHDX, scratch registry key), `tests/integration` (gated by `WSLDISK_INTEGRATION`), `tests/fuzz` targets
-- [ ] Verify WSL2 works on `windows-2025` hosted runners (nested virt); decide hosted vs self-hosted for the integration job
-- [ ] `codeql.yml`, `dependabot.yml` (actions), `vcpkg-baseline.yml`, `labeler.yml`, `stale.yml`
-- [ ] Composite actions: `setup-toolchain`, `wsl-fixture` (SHA-pinned Alpine rootfs, auto-cleanup)
-- [ ] Branch protection on `main`: all CI jobs required, linear history
-- [ ] Issue/PR templates, CODEOWNERS, `SECURITY.md`
+- [x] CMake presets (`x64-debug`, `x64-release`, `arm64-release`, plus `x64-clang`, `arm64-clang`, `x64-coverage`, `x64-asan`, `x64-lint`), vcpkg manifest with a pinned baseline, Ninja Multi-Config
+- [x] `libwsldisk` static lib + `wsldisk` exe + `tests` targets; `wsldisk --version` works
+- [x] `.clang-format`, `.clang-tidy`, `.editorconfig`, `.gitattributes`, pre-commit hook (`.githooks/`, `scripts/install-hooks.ps1`)
+- [x] `scripts/dev-shell.ps1` — one-step local MSVC + CMake + Ninja + LLVM + vcpkg environment
+- [x] `ci.yml`: lint job (clang-format, markdownlint, actionlint, ruff; **clang-tidy advisory** — see below); build-test matrix MSVC + clang-cl × x64 + arm64 × Debug + Release; JUnit test reports
+- [x] `ci.yml`: **coverage job with 100% line/branch/function gate** (`scripts/check-coverage.py`), Codecov upload, HTML artifact
+- [x] `ci.yml`: ASan job, integration job, package job (Release zips + SHA256SUMS)
+- [x] `Win32Api` fault-injection table in `platform/` so every error branch is testable
+- [x] Test skeleton: `tests/unit` (Catch2), `tests/contract` (real Win32 on temp files), `tests/integration` (gated by `WSLDISK_INTEGRATION`)
+- [ ] `tests/fuzz` targets and `nightly.yml` ([#10](https://github.com/zcsizmadia/wsldisk/issues/10))
+- [ ] Fakes for the remaining interfaces (`FakeRegistry`, `FakeVirtualDisk`, `FakeWslHost`, `FakeFileSystem`, `FakeClock`) — land with the interfaces in M1
+- [ ] Make `clang-tidy` a blocking gate ([#8](https://github.com/zcsizmadia/wsldisk/issues/8)) — clang-tidy 18 crashes on the MSVC 14.4x C++23 headers
+- [ ] Verify WSL2 works on `windows-2025` hosted runners; decide hosted vs self-hosted ([#7](https://github.com/zcsizmadia/wsldisk/issues/7))
+- [x] `codeql.yml`, `dependabot.yml` (actions), `vcpkg-baseline.yml`, `labeler.yml`, `stale.yml`
+- [x] Composite actions: `setup-toolchain`, `wsl-fixture` (SHA-pinned Alpine 3.22.4 rootfs), `wsl-cleanup`
+- [ ] Branch protection on `main`: all CI jobs required, linear history ([#9](https://github.com/zcsizmadia/wsldisk/issues/9))
+- [x] Issue/PR templates, CODEOWNERS, `SECURITY.md`
 
 **Technical spikes** (throwaway code under `spikes/`, results recorded in `docs/RESEARCH.md`)
-- [ ] `CompactVirtualDisk` unattached vs attached-RO: measure reclaimed bytes after `fstrim` on a 20 GB test distro
-- [ ] Confirm `ResizeVirtualDisk` shrink path + `resize2fs` via `wsl --mount --vhd --bare` (same distro terminated)
-- [ ] `WslLaunch` as uid 0 with non-root default user — does it work, or need `wsl.exe -u root`?
-- [ ] Registry layout across WSL inbox 1.x / Store 2.x: `BasePath` prefix forms, `VhdFileName`, `Flags` bits (sparse)
-- [ ] Docker Desktop VHDX lock behaviour when Docker is "stopped" vs quit
-- [ ] Elevation relaunch + named-pipe result streaming prototype
+- [ ] `CompactVirtualDisk` unattached vs attached-RO: measure reclaimed bytes after `fstrim` on a 20 GB test distro ([#1](https://github.com/zcsizmadia/wsldisk/issues/1))
+- [ ] Confirm `ResizeVirtualDisk` shrink path + `resize2fs` via `wsl --mount --vhd --bare` ([#2](https://github.com/zcsizmadia/wsldisk/issues/2))
+- [ ] `WslLaunch` as uid 0 with a non-root default user ([#3](https://github.com/zcsizmadia/wsldisk/issues/3))
+- [ ] Registry layout across WSL inbox 1.x / Store 2.x ([#4](https://github.com/zcsizmadia/wsldisk/issues/4))
+- [ ] Docker Desktop VHDX lock behaviour when Docker is "stopped" vs quit ([#5](https://github.com/zcsizmadia/wsldisk/issues/5))
+- [ ] Elevation relaunch + named-pipe result streaming prototype ([#6](https://github.com/zcsizmadia/wsldisk/issues/6))
 
 **Exit criteria:** CI green with the 100% coverage gate passing on the skeleton, all spikes answered in RESEARCH.md, open questions in PLAN.md §8 resolved or converted to issues.
 

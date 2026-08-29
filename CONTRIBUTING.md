@@ -4,45 +4,95 @@
 
 - Windows 11 (or 10 22H2) with WSL2 installed
 - Visual Studio 2022 17.10+ with "Desktop development with C++" (MSVC, Windows 11 SDK, CMake, Ninja) — or Build Tools
-- [vcpkg](https://github.com/microsoft/vcpkg) (`VCPKG_ROOT` set); dependencies come from `vcpkg.json`
-- Optional: LLVM/clang-cl for clang-tidy and the ASan job
+- [vcpkg](https://github.com/microsoft/vcpkg), cloned and bootstrapped:
+
+  ```powershell
+  git clone https://github.com/microsoft/vcpkg C:\src\vcpkg
+  C:\src\vcpkg\bootstrap-vcpkg.bat
+  ```
+
+  Use a **full** clone, not `--depth 1`: vcpkg needs history to resolve ports at
+  the pinned baseline. The bundled copy inside Visual Studio has no ports tree
+  and cannot be used.
+- Optional but recommended: the "C++ Clang tools for Windows" VS component or a
+  standalone [LLVM](https://github.com/llvm/llvm-project/releases) install —
+  `clang-cl` for the ASan job, `llvm-cov`/`llvm-profdata` for the coverage gate,
+  `clang-format`/`clang-tidy` for lint.
 
 ## Build
 
+`scripts/dev-shell.ps1` puts MSVC, CMake, Ninja, the LLVM tools and vcpkg on
+PATH in one step. Dot-source it so the environment sticks:
+
 ```powershell
+. .\scripts\dev-shell.ps1
 cmake --preset x64-debug
 cmake --build --preset x64-debug
 ctest --preset x64-debug
 ```
 
-Integration tests need WSL and create/destroy a throwaway distro named `wsldisk-test-*`:
+It finds vcpkg via `VCPKG_ROOT`, a `vcpkg` checkout next to this repository, or
+`%USERPROFILE%\vcpkg` — pass `-VcpkgRoot` to override.
+
+### Presets
+
+| Preset | What it is for |
+|---|---|
+| `x64-debug`, `x64-release` | MSVC, x64. Ninja Multi-Config, so either preset can build either configuration. |
+| `arm64-release` | MSVC, arm64, cross-compiled |
+| `x64-clang`, `arm64-clang` | clang-cl, for the second-opinion diagnostics CI runs |
+| `x64-coverage` | clang-cl with source-based coverage; hosts the `coverage` target |
+| `x64-asan` | clang-cl with AddressSanitizer |
+| `x64-lint` | single-config generator, only to produce `compile_commands.json` for clang-tidy |
+
+Test presets `x64-debug-unit`, `x64-debug-contract` and `x64-debug-integration`
+select one layer of the pyramid.
+
+Integration tests need WSL and create/destroy a throwaway distro named
+`wsldisk-test-*`. They register in CTest either way but skip themselves unless
+the environment variable is set:
 
 ```powershell
 $env:WSLDISK_INTEGRATION = 1
-ctest --preset x64-debug -L integration
+ctest --preset x64-debug-integration
 ```
+
+`scripts/fetch-fixtures.ps1` downloads the SHA256-pinned Alpine rootfs the
+integration suite imports.
 
 ## Coding standards
 
 - C++23, `/W4 /permissive- /utf-8`, warnings are errors
 - RAII everywhere; WIL for handles and Win32 errors; no raw `new`/`delete`
 - `std::expected` for expected failures, exceptions for programmer/unexpected errors
-- `<windows.h>` only under `src/lib/platform/`
+- `<windows.h>` only under `src/lib/platform/`, and every Win32 call goes through
+  the `Win32Api` table in `platform/win32_api.h` so tests can inject failures
 - Every operation gets: `plan()` support for `--dry-run`, a unit test with fakes, an integration test
 - Every user-facing error carries a remedy
-- `.clang-format` is authoritative; run before committing
+- `.clang-format` is authoritative; run before committing:
+
+  ```powershell
+  $files = Get-ChildItem -Recurse -Path src, tests -Include *.cpp, *.h, *.in | ForEach-Object { $_.FullName }
+  clang-format -i @files
+  ```
 
 ## Tests & coverage
 
 - **100% line, branch and function coverage is required.** CI fails otherwise. See [docs/TESTING.md](docs/TESTING.md).
-- Run locally before pushing:
+- Run the gate locally before pushing (needs `llvm-cov`, `llvm-profdata` and Python 3.10+):
+
   ```powershell
-  cmake --preset x64-coverage && cmake --build --preset x64-coverage
-  ctest --preset x64-coverage
-  python scripts/check-coverage.py build/x64-coverage/coverage.lcov --lines 100 --branches 100 --functions 100
+  cmake --preset x64-coverage
+  cmake --build --preset x64-coverage
+  cmake --build --preset x64-coverage-gate   # runs the tests, then enforces the thresholds
   ```
+
+  The `coverage` target writes `build/x64-coverage/coverage.lcov` and an HTML
+  report next to it, then fails if any threshold is missed.
 - Contract tests (`-L contract`) hit real Win32 on temp files and a scratch registry key; they need no WSL and must stay hermetic (clean up everything they create).
 - Coverage exclusions (`LCOV_EXCL_*`) are for provably unreachable code only and require a justifying comment.
+- Test case names must not start with `--`: CTest passes the name to Catch2 as a
+  filter, and Catch2 parses a leading `--` as one of its own options.
 
 ## Commits & PRs
 
