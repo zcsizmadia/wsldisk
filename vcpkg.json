@@ -1,0 +1,25 @@
+{
+  "$schema": "https://raw.githubusercontent.com/microsoft/vcpkg-tool/main/docs/vcpkg.schema.json",
+  "name": "wsldisk",
+  "version": "0.1.0",
+  "description": "Compact, shrink, move, inspect and snapshot WSL2 virtual disks",
+  "homepage": "https://github.com/zcsizmadia/wsldisk",
+  "license": "MIT",
+  "builtin-baseline": "118bba14b94bc040c098c0c15e63c142148c05ca",
+  "supports": "windows & (x64 | arm64)",
+  "dependencies": [
+    "cli11",
+    "fmt",
+    "nlohmann-json",
+    "tomlplusplus",
+    "wil"
+  ],
+  "features": {
+    "tests": {
+      "description": "Build the unit, contract and integration test suites",
+      "dependencies": [
+        "catch2"
+      ]
+    }
+  }
+}

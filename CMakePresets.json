@@ -1,0 +1,164 @@
+{
+  "version": 6,
+  "cmakeMinimumRequired": { "major": 3, "minor": 28, "patch": 0 },
+  "configurePresets": [
+    {
+      "name": "base",
+      "hidden": true,
+      "generator": "Ninja Multi-Config",
+      "binaryDir": "${sourceDir}/build/${presetName}",
+      "installDir": "${sourceDir}/build/${presetName}/install",
+      "toolchainFile": "$env{VCPKG_ROOT}/scripts/buildsystems/vcpkg.cmake",
+      "cacheVariables": {
+        "CMAKE_EXPORT_COMPILE_COMMANDS": "ON",
+        "VCPKG_MANIFEST_FEATURES": "tests",
+        "WSLDISK_BUILD_TESTS": "ON"
+      },
+      "condition": {
+        "type": "equals",
+        "lhs": "${hostSystemName}",
+        "rhs": "Windows"
+      }
+    },
+    {
+      "name": "msvc",
+      "hidden": true,
+      "inherits": "base",
+      "cacheVariables": {
+        "CMAKE_C_COMPILER": "cl",
+        "CMAKE_CXX_COMPILER": "cl"
+      }
+    },
+    {
+      "name": "clang-cl",
+      "hidden": true,
+      "inherits": "base",
+      "cacheVariables": {
+        "CMAKE_C_COMPILER": "clang-cl",
+        "CMAKE_CXX_COMPILER": "clang-cl"
+      }
+    },
+    {
+      "name": "x64-debug",
+      "displayName": "x64 Debug (MSVC)",
+      "inherits": "msvc",
+      "architecture": { "value": "x64", "strategy": "external" },
+      "cacheVariables": { "VCPKG_TARGET_TRIPLET": "x64-windows-static" }
+    },
+    {
+      "name": "x64-release",
+      "displayName": "x64 Release (MSVC)",
+      "inherits": "msvc",
+      "architecture": { "value": "x64", "strategy": "external" },
+      "cacheVariables": { "VCPKG_TARGET_TRIPLET": "x64-windows-static" }
+    },
+    {
+      "name": "arm64-release",
+      "displayName": "arm64 Release (MSVC, cross-compiled)",
+      "inherits": "msvc",
+      "architecture": { "value": "arm64", "strategy": "external" },
+      "cacheVariables": { "VCPKG_TARGET_TRIPLET": "arm64-windows-static" }
+    },
+    {
+      "name": "x64-clang",
+      "displayName": "x64 (clang-cl)",
+      "inherits": "clang-cl",
+      "architecture": { "value": "x64", "strategy": "external" },
+      "cacheVariables": { "VCPKG_TARGET_TRIPLET": "x64-windows-static" }
+    },
+    {
+      "name": "x64-lint",
+      "displayName": "x64 Debug, single-config (compile_commands.json for clang-tidy)",
+      "inherits": "msvc",
+      "generator": "Ninja",
+      "architecture": { "value": "x64", "strategy": "external" },
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Debug",
+        "VCPKG_TARGET_TRIPLET": "x64-windows-static"
+      }
+    },
+    {
+      "name": "arm64-clang",
+      "displayName": "arm64 (clang-cl, cross-compiled)",
+      "inherits": "clang-cl",
+      "architecture": { "value": "arm64", "strategy": "external" },
+      "cacheVariables": { "VCPKG_TARGET_TRIPLET": "arm64-windows-static" }
+    },
+    {
+      "name": "x64-coverage",
+      "displayName": "x64 Debug + source-based coverage (clang-cl)",
+      "inherits": "clang-cl",
+      "architecture": { "value": "x64", "strategy": "external" },
+      "cacheVariables": {
+        "VCPKG_TARGET_TRIPLET": "x64-windows-static",
+        "WSLDISK_ENABLE_COVERAGE": "ON"
+      }
+    },
+    {
+      "name": "x64-asan",
+      "displayName": "x64 Debug + AddressSanitizer (clang-cl)",
+      "inherits": "clang-cl",
+      "architecture": { "value": "x64", "strategy": "external" },
+      "cacheVariables": {
+        "VCPKG_TARGET_TRIPLET": "x64-windows-static",
+        "WSLDISK_ENABLE_ASAN": "ON"
+      }
+    }
+  ],
+  "buildPresets": [
+    { "name": "x64-debug", "configurePreset": "x64-debug", "configuration": "Debug" },
+    { "name": "x64-release", "configurePreset": "x64-release", "configuration": "Release" },
+    { "name": "arm64-release", "configurePreset": "arm64-release", "configuration": "Release" },
+    { "name": "x64-clang-debug", "configurePreset": "x64-clang", "configuration": "Debug" },
+    { "name": "x64-clang-release", "configurePreset": "x64-clang", "configuration": "Release" },
+    { "name": "x64-coverage", "configurePreset": "x64-coverage", "configuration": "Debug" },
+    { "name": "x64-coverage-gate", "configurePreset": "x64-coverage", "configuration": "Debug", "targets": ["coverage"] },
+    { "name": "x64-asan", "configurePreset": "x64-asan", "configuration": "Debug" }
+  ],
+  "testPresets": [
+    {
+      "name": "base",
+      "hidden": true,
+      "output": { "outputOnFailure": true, "verbosity": "default" },
+      "execution": { "noTestsAction": "error", "stopOnFailure": false }
+    },
+    { "name": "x64-debug", "inherits": "base", "configurePreset": "x64-debug", "configuration": "Debug" },
+    { "name": "x64-release", "inherits": "base", "configurePreset": "x64-release", "configuration": "Release" },
+    { "name": "x64-clang-debug", "inherits": "base", "configurePreset": "x64-clang", "configuration": "Debug" },
+    { "name": "x64-coverage", "inherits": "base", "configurePreset": "x64-coverage", "configuration": "Debug" },
+    { "name": "x64-asan", "inherits": "base", "configurePreset": "x64-asan", "configuration": "Debug" },
+    {
+      "name": "x64-debug-unit",
+      "inherits": "x64-debug",
+      "filter": { "include": { "label": "unit" } }
+    },
+    {
+      "name": "x64-debug-contract",
+      "inherits": "x64-debug",
+      "filter": { "include": { "label": "contract" } }
+    },
+    {
+      "name": "x64-debug-integration",
+      "inherits": "x64-debug",
+      "filter": { "include": { "label": "integration" } }
+    }
+  ],
+  "workflowPresets": [
+    {
+      "name": "x64-debug",
+      "steps": [
+        { "type": "configure", "name": "x64-debug" },
+        { "type": "build", "name": "x64-debug" },
+        { "type": "test", "name": "x64-debug" }
+      ]
+    },
+    {
+      "name": "coverage",
+      "steps": [
+        { "type": "configure", "name": "x64-coverage" },
+        { "type": "build", "name": "x64-coverage" },
+        { "type": "build", "name": "x64-coverage-gate" }
+      ]
+    }
+  ]
+}
