@@ -58,3 +58,31 @@ Housekeeping: label PRs by path (`area:platform`, `area:ops`, `docs`), stale iss
 ## Secrets
 
 `CODECOV_TOKEN`, `WINGET_GITHUB_TOKEN` (PAT scoped to fork of winget-pkgs), optional `AZURE_TRUSTED_SIGNING_*`. No secrets are available to `pull_request` from forks; the integration job uses `pull_request_target` with an explicit `safe-to-test` label gate.
+
+## Implementation notes
+
+Recorded as the workflows were written; each is a deliberate deviation from the
+design above, not an oversight.
+
+- **`clang-tidy` is advisory for now.** clang-tidy 18 crashes parsing the C++23
+  standard headers shipped with MSVC 14.4x, which makes its findings unreliable
+  rather than merely noisy. The step runs with `continue-on-error: true`; it
+  becomes blocking once a pinned LLVM analyses the tree cleanly.
+- **The lint job configures the `x64-lint` preset**, a single-config Ninja build,
+  purely to produce `compile_commands.json`. A multi-config database lists every
+  source once per configuration, which would triple lint time, and its
+  `@...modmap` arguments are not something clang-tidy can consume. The project
+  sets `CMAKE_CXX_SCAN_FOR_MODULES OFF` for the same reason (no modules are used).
+- **The vcpkg binary cache uses `actions/cache` over a local directory**
+  (`VCPKG_DEFAULT_BINARY_CACHE`) rather than the `x-gha` provider, which needs
+  `ACTIONS_RUNTIME_TOKEN` exported into the job.
+- **vcpkg is cloned in full, then checked out at the manifest baseline.** A
+  shallow clone cannot resolve a port at a pinned version.
+- **`wsl-fixture` has no post step.** Composite actions cannot register one, so
+  every job that imports a scratch distro pairs it with
+  `.github/actions/wsl-cleanup` guarded by `if: always()`. The cleanup sweeps
+  every distribution named `wsldisk-test-*`, not just the current run's, so a
+  leak from an earlier job cannot poison a self-hosted runner.
+- **The integration job runs on hosted `windows-2025`** and is gated for fork
+  pull requests behind the `safe-to-test` label. Whether nested virtualisation on
+  hosted runners is reliable enough to keep it there is the open M0 spike.
