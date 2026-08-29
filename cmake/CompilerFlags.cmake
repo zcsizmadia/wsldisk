@@ -116,11 +116,17 @@ if(WSLDISK_ENABLE_ASAN)
 
     # The MSVC STL's ASan container annotations are an all-or-nothing choice for
     # everything linked into the image, and the vcpkg dependencies are not built
-    # with ASan -- linking mismatched objects fails on `/failifmismatch:
-    # annotate_string`. Turning the annotations off costs the detection of
-    # overflows *within* a std::string or std::vector buffer; heap and stack
-    # overflows and use-after-free are all still caught.
+    # with ASan -- linking mismatched objects fails with LNK2038 on
+    # `annotate_string`, `annotate_vector`, `annotate_optional` and whatever the
+    # STL adds next.
+    #
+    # `_DISABLE_STL_ANNOTATION` is the umbrella that implies all of them, so a new
+    # annotated container cannot break this build again; the two specific macros
+    # are kept for STL versions that predate it. The cost is detection of
+    # overflows *within* a std::string, std::vector or std::optional buffer; heap
+    # and stack overflows and use-after-free are all still caught.
     target_compile_definitions(wsldisk_flags INTERFACE
+        _DISABLE_STL_ANNOTATION=1
         _DISABLE_STRING_ANNOTATION=1
         _DISABLE_VECTOR_ANNOTATION=1)
 endif()
