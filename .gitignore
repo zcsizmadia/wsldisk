@@ -1,0 +1,28 @@
+# Build
+/build/
+/out/
+/bin/
+/obj/
+CMakeUserPresets.json
+compile_commands.json
+
+# vcpkg
+/vcpkg_installed/
+
+# IDE
+.vs/
+.vscode/
+.idea/
+*.user
+*.suo
+
+# Test artifacts
+*.vhdx
+*.vhd
+*.tar
+*.tar.gz
+Testing/
+
+# OS
+Thumbs.db
+desktop.ini
