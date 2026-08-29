@@ -73,11 +73,14 @@ jobs:
           Expand-Archive actionlint.zip -DestinationPath actionlint-bin
           ./actionlint-bin/actionlint.exe -color
 
-      - name: Python lint for the coverage gate
+      # The coverage gate is the check that stops undertested code shipping, so
+      # it gets linted and tested like anything else.
+      - name: Lint and test the coverage gate
         shell: pwsh
         run: |
-          python -m pip install --quiet ruff
+          python -m pip install --quiet ruff pytest
           python -m ruff check scripts/
+          python -m pytest scripts/tests -q
 
   build-test:
     name: ${{ matrix.toolchain }} ${{ matrix.architecture }} ${{ matrix.configuration }}
@@ -173,12 +176,17 @@ jobs:
           path: build/x64-coverage/coverage-html
           if-no-files-found: warn
 
+      # The gate is check-coverage.py, which has already run by this point.
+      # Codecov is reporting, so a missing token or a flaky upload must not turn a
+      # passing build red -- and without a token the upload cannot work at all.
       - name: Upload to Codecov
-        if: always()
+        if: always() && env.CODECOV_TOKEN != ''
+        env:
+          CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
         uses: codecov/codecov-action@0fb7174895f61a3b6b78fc075e0cd60383518dac  # v5
         with:
           files: build/x64-coverage/coverage.lcov
-          fail_ci_if_error: true
+          fail_ci_if_error: false
           token: ${{ secrets.CODECOV_TOKEN }}
 
   asan:
@@ -187,9 +195,8 @@ jobs:
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09  # v5
 
+      # MSVC's ASan, not clang-cl's -- see docs/CI.md; no LLVM needed.
       - uses: ./.github/actions/setup-toolchain
-        with:
-          llvm: 'true'
 
       - name: Configure
         shell: pwsh

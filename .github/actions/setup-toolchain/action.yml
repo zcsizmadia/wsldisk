@@ -28,10 +28,13 @@ outputs:
 runs:
   using: composite
   steps:
+    # The runners are x64, so an arm64 target is a cross-compile: `arm64` would
+    # select the arm64-hosted toolset, which is not installed and leaves `cl` off
+    # PATH entirely.
     - name: Set up the MSVC environment
       uses: ilammy/msvc-dev-cmd@0b201ec74fa43914dc39ae48a89fd1d8cb592756  # v1
       with:
-        arch: ${{ inputs.architecture }}
+        arch: ${{ inputs.architecture == 'arm64' && 'amd64_arm64' || 'amd64' }}
 
     - name: Install LLVM
       if: inputs.llvm == 'true'

@@ -65,6 +65,8 @@ TEST_CASE("whitespace around and inside the value is ignored", "[size]") {
     CHECK(parsed("  64G") == 64 * gib);
     CHECK(parsed("64G  ") == 64 * gib);
     CHECK(parsed("\t64 G\n") == 64 * gib);
+    // A value read from a CRLF file or a pasted line keeps its carriage return.
+    CHECK(parsed("\r\n64G\r\n") == 64 * gib);
     CHECK(parsed("64   GiB") == 64 * gib);
 }
 

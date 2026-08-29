@@ -39,3 +39,8 @@ coverage.lcov
 # OS
 Thumbs.db
 desktop.ini
+
+# Python
+__pycache__/
+*.py[cod]
+.pytest_cache/

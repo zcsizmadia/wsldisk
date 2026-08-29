@@ -95,6 +95,22 @@ $toolPaths = @(
 
 $env:PATH = ($toolPaths -join ';') + ';' + $env:PATH
 
+# Enter-VsDevShell reports success even when the requested cross toolset is not
+# installed; it just leaves the host compiler on PATH and drops the rest of the
+# environment, which surfaces much later as "CMake was unable to find a build
+# program". Fail here instead, with the fix.
+$compiler = Get-Command cl -ErrorAction SilentlyContinue
+if (-not $compiler) {
+    throw "cl.exe is not on PATH after entering the developer shell; is the C++ workload installed?"
+}
+if ($compiler.Source -notmatch "\\Host[^\\]+\\$Architecture\\cl\.exe$") {
+    throw @"
+The $Architecture toolset is not installed: cl.exe resolved to
+  $($compiler.Source)
+Install it from the Visual Studio Installer ("MSVC v143 - VS 2022 C++ $Architecture build tools").
+"@
+}
+
 Write-Host "Visual Studio : $vsInstallPath"
 Write-Host "Architecture  : $Architecture"
 Write-Host "VCPKG_ROOT    : $env:VCPKG_ROOT"
