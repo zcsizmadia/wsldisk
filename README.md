@@ -28,6 +28,13 @@ tested, native tool that covers the whole lifecycle of a WSL2 disk.
 | `wsldisk snapshot` / `restore` | Fast snapshots (VHDX copy or export tar), optional incremental/dedup backends, retention policy, scheduling |
 | `wsldisk doctor` | Detect the `--allow-unsafe` sparse foot-gun, orphaned VHDX files, distros with wrong `BasePath`, disks near capacity |
 | `wsldisk mount <file.vhdx>` | Attach any VHDX read-only into a distro for forensics/recovery |
+| `wsldisk info` / `usage` / `orphans` / `lock` | Detail view, where space goes inside the guest, unreferenced VHDX files, which process holds the disk |
+| `wsldisk trim` / `clean` / `verify` | fstrim only; purge known caches (apt, npm, pip, docker, journal…) then compact; read-only `e2fsck` |
+| `wsldisk clone` / `migrate` / `default-user` / `set-sparse` | Scratch copies, move all distros to a new drive, fix `DefaultUid`, guided sparse toggle |
+| `wsldisk rescue` | Shell in a helper distro with a broken distro's disk mounted rw |
+| `wsldisk schedule` / `config` / `completion` | Task Scheduler jobs, settings, shell completions |
+
+Full command tree and per-command specs in [PLAN.md](PLAN.md) §4.
 
 **Scope:** WSL2 only. WSL1 distributions have no virtual disk; `wsldisk list` shows them, every other command refuses with a hint to convert (`wsl --set-version <distro> 2`).
 

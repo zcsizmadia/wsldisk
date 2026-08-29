@@ -37,7 +37,7 @@ Goal: de-risk the unknowns, have a compiling skeleton and CI.
 
 ---
 
-## M1 — `list` + `compact` (v0.1.0, ≈ 3 weeks)
+## M1 — `list`, `info`, `compact`, `trim`, `orphans` (v0.1.0, ≈ 3–4 weeks)
 
 Goal: the 80% use case — see where the space is and get it back — shippable.
 
@@ -49,6 +49,11 @@ Goal: the 80% use case — see where the space is and get it back — shippable.
 - [ ] `CompactOperation`: preflight, `fstrim`, terminate, wait-for-unlock, compact (unattached), report
 - [ ] Attached-RO "full" compaction when elevated; `--elevate` relaunch
 - [ ] `--all`, `--dry-run`, `--no-trim`, `--restart`, `--file <vhdx>`
+- [ ] `wsldisk info <distro>` detail view + `--json`
+- [ ] `wsldisk trim <distro>` (fstrim only, no shutdown)
+- [ ] `wsldisk orphans` with default scan dirs, `--delete`, `--relink`
+- [ ] `wsldisk config get|set|edit|path`; `config.toml` schema
+- [ ] `wsldisk completion powershell|bash|zsh`
 - [ ] Exit code scheme, `-v` logging, `--log`
 - [ ] Unit tests (100% coverage) for `list`/`compact` planner, preflight, renderers; golden files for table + JSON
 - [ ] Contract tests: `CompactVirtualDisk`/`GetVirtualDiskInformation`/sparse-size probes on temp VHDX; registry enumeration on scratch hive
@@ -63,7 +68,7 @@ Goal: the 80% use case — see where the space is and get it back — shippable.
 
 ---
 
-## M2 — `move`, `relink`, `grow`, `shrink` (v0.2.0, ≈ 4 weeks)
+## M2 — `move`, `relink`, `grow`, `shrink`, `usage`, `clean`, `verify` (v0.2.0, ≈ 5 weeks)
 
 - [ ] `MoveOperation`: preflight (fs type, free space, lock), sparse-preserving copy with progress, hash `--verify`, registry repoint, start test, rollback, source cleanup; same-volume fast path
 - [ ] `wsldisk relink <distro> <path>`
@@ -71,6 +76,12 @@ Goal: the 80% use case — see where the space is and get it back — shippable.
 - [ ] Helper-distro mechanism (tiny Alpine rootfs, on-demand import/remove) or `--via <distro>`
 - [ ] `ShrinkOperation`: fit check with margin, `e2fsck -f`, `resize2fs <size>`, `ResizeVirtualDisk` (safe flag only), compact, `e2fsck -n` verify
 - [ ] `wsldisk mount` / `unmount` wrappers (read-only default)
+- [ ] `wsldisk verify <distro>` (VHDX metadata + `e2fsck -n`, exit 6 on errors)
+- [ ] `wsldisk usage <distro>` with curated cache catalogue (`data/caches.toml`)
+- [ ] `wsldisk clean <distro>` per-category flags, `--dry-run`, `--compact` chaining; never outside catalogue paths
+- [ ] `wsldisk default-user <distro> [name|uid]`
+- [ ] `wsldisk set-sparse <distro> on|off` with caveat gate and post-off compact
+- [ ] `wsldisk lock <distro>` via Restart Manager; reused in preflight error messages
 - [ ] Feature detection of `wsl.exe` capabilities (`--manage`, `--mount --vhd`, version)
 - [ ] Unit tests (100% coverage) incl. rollback paths with injected failures at every mutating step
 - [ ] Contract tests: `ResizeVirtualDisk` grow/shrink-safe on temp VHDX; sparse-preserving copy on real NTFS; FAT/exFAT refusal
@@ -82,13 +93,17 @@ Goal: the 80% use case — see where the space is and get it back — shippable.
 
 ---
 
-## M3 — `snapshot`, `restore`, `doctor`, `schedule` (v0.3.0, ≈ 4 weeks)
+## M3 — `snapshot`, `restore`, `clone`, `rescue`, `migrate`, `doctor`, `schedule` (v0.3.0, ≈ 5 weeks)
 
 - [ ] Snapshot repo layout + `manifest.json` schema; config in `%APPDATA%\wsldisk\config.toml`
 - [ ] `copy` backend (sparse-preserving) with `--keep-last/--keep-daily/--keep-weekly` retention
 - [ ] `tar` backend via `wsl --export` (format flags where supported)
 - [ ] `restore` in place and `--as <newname>` (new GUID registry entry)
 - [ ] `differencing` backend (experimental, behind `--experimental`)
+- [ ] `wsldisk snapshots list|prune|show`
+- [ ] `wsldisk clone <distro> <newname>` (VHDX copy + fresh GUID registry entry)
+- [ ] `wsldisk rescue <distro>` (helper distro, target mounted rw at `/mnt/rescue`)
+- [ ] `wsldisk migrate <dir>` (plan + confirm, loops `move`, `--exclude-docker`)
 - [ ] Hook scripts (`pre-snapshot`, `post-snapshot`) for restic/borg/kopia hand-off
 - [ ] `wsldisk doctor` checks + `--fix` remediations (sparse warning, orphans, broken BasePath, bloat, capacity, `.wslconfig` sanity)
 - [ ] `wsldisk schedule install|remove|status` via Task Scheduler COM
@@ -121,8 +136,11 @@ Goal: the 80% use case — see where the space is and get it back — shippable.
 
 ## Later / v2 ideas (unscheduled)
 
+- `import`/`export` wrappers with progress, `--vhd`, `--default-user`, `--location`; `import --from-docker-image <ref>`
+- `export-docker <distro>` — rootfs → OCI/Docker image tarball
+- `stats [--record]` — size history + growth trends/sparklines
+- `convert <vhd|vmdk|qcow2>` → VHDX + register
 - Tray/WinUI 3 GUI on top of `libwsldisk` (space usage at a glance, one-click compact)
-- `wsldisk stats` history + sparkline of disk growth over time
 - Auto-compact policy daemon (compact when idle and reclaimable > N GB)
 - Deduplicated snapshot backend built-in (content-defined chunking) instead of external tools
 - Support Hyper-V VM disks and Windows Sandbox explicitly

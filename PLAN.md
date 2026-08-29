@@ -160,12 +160,58 @@ Checks and, with `--fix`, remediation:
 
 `wsldisk mount <file.vhdx> [--into <distro>] [--rw]` — thin, safer wrapper around `wsl --mount --vhd` with auto-detection of partitions/filesystem and a read-only default. Used internally by `shrink`.
 
-### 4.8 Global behaviour
+### 4.8 Additional commands
+
+Small, mostly-orchestration commands that round out the lifecycle. Each reuses the
+interfaces and operation framework above; none introduces a new platform dependency.
+
+**M1**
+- `info <distro>` — single-distro detail: GUID, registry key, BasePath, default uid/user name, flags, WSL version, VHDX block/sector size, virtual/physical size, sparse, parent chain (differencing), running state, guest kernel and `df`. `--json`.
+- `trim <distro>` — only the `fstrim` step, distro stays running. Light-touch, cron-friendly; the right op for sparse-mode disks.
+- `orphans [--scan <dir>...]` — VHDX files not referenced by any registry entry (default scan: `%LOCALAPPDATA%\Packages\*\LocalState`, `%LOCALAPPDATA%\wsl`, `%LOCALAPPDATA%\Docker\wsl`, user-configured dirs). Shows size; `--delete` with confirmation; `--relink <distro>` to adopt.
+- `completion <powershell|bash|zsh>` — emit shell completion script.
+- `config [get|set|edit|path]` — `%APPDATA%\wsldisk\config.toml` (snapshot repo, retention, helper distro, scan dirs) and read-only display of disk-relevant `.wslconfig` keys (`vhdSize`, `swapFile`, `defaultVhdSize`).
+
+**M2**
+- `usage <distro> [--top N]` — where space goes inside the guest: largest directories plus a curated list of known caches (apt/dnf/pacman, pip, npm/yarn/pnpm, cargo, go, gradle/maven, docker/podman storage, journal, `~/.cache`, snap, `/tmp`). Runs `du`/`df` via `WslLaunch`; read-only.
+- `clean <distro> [--caches] [--journal] [--docker] [--all] [--compact]` — act on `usage`: each category opt-in, prints what will be removed (`--dry-run`), then optionally chains `compact`. Never touches user data outside known cache paths.
+- `verify <distro>` — read-only integrity check: VHDX header/metadata via `GetVirtualDiskInformation`, then `e2fsck -n` through `wsl --mount --vhd --bare`. Exit 0 clean, 6 filesystem errors found.
+- `default-user <distro> [<name>|<uid>]` — show or set `DefaultUid` (resolves name via `getent passwd` in the guest). The most common post-import/`move` fix.
+- `set-sparse <distro> on|off` — guided wrapper around `wsl --manage --set-sparse`: on `on`, prints the corruption caveat (WSL#12103) and requires `--i-understand`; on `off`, compacts afterwards.
+- `lock <distro>` — which Windows process holds the VHDX open (Restart Manager `RmGetList` on the file); the "why can't I compact" answer. Also used by `doctor` and by preflight messages.
+
+**M3**
+- `clone <distro> <newname> [--location <dir>]` — copy VHDX + new registry entry with fresh GUID, same default uid/flags. Fast scratch copies without export/import.
+- `snapshots list|prune|show` — explicit snapshot management verbs (prune runs retention without creating a new snapshot).
+- `rescue <distro>` — boot the helper distro with the target VHDX mounted rw at `/mnt/rescue` and drop into a shell; for fixing `/etc/wsl.conf`, `fstab`, sudoers on an unbootable distro.
+- `migrate <dir>` — move every WSL2 distro (optionally excluding Docker's) to a new drive with one plan/confirmation; loops `move`.
+
+**Post-1.0**
+- `import` / `export` wrappers: progress, `--vhd` format, `--default-user`, `--location`, and `import --from-docker-image <ref>` (pull OCI image → rootfs tar → distro).
+- `export-docker <distro>` — inverse: rootfs → OCI/Docker image tarball.
+- `stats [--record]` — append sizes to a local history (`%APPDATA%\wsldisk\history.jsonl`), print growth trends/sparklines; foundation for an auto-compact policy.
+- `convert <file.vhd|vmdk|qcow2>` — to VHDX + register (VHD natively; others via `qemu-img` if present).
+
+Explicitly **not** commands: distro install/uninstall/run, networking/memory tuning, Docker image management, GUI (see §2).
+
+### 4.9 Global behaviour
 
 - `--json` on every command → machine-readable object, one per line for `--all`.
 - `--dry-run` prints the plan and preflight results, changes nothing.
 - `--yes` skips confirmations; interactive prompts only when stdin is a TTY.
-- Exit codes: 0 ok, 1 generic error, 2 usage, 3 preflight failed (nothing changed), 4 needs elevation, 5 partially completed (see output), 10 distro not found, 11 distro running/locked.
+- Exit codes: 0 ok, 1 generic error, 2 usage, 3 preflight failed (nothing changed), 4 needs elevation, 5 partially completed (see output), 6 integrity check found errors, 10 distro not found, 11 distro running/locked.
+- Command tree:
+  ```
+  wsldisk
+  ├── list, info, usage, orphans, lock            # inspect (read-only)
+  ├── trim, compact, clean, shrink, grow, verify  # reclaim & resize
+  ├── move, relink, clone, migrate,               # relocate & duplicate
+  │   default-user, set-sparse                    # registry/flags
+  ├── snapshot, snapshots, restore                # backup
+  ├── mount, unmount, rescue                      # access a VHDX
+  ├── doctor, schedule, config, completion        # maintenance & tooling
+  └── (post-1.0) import, export, export-docker, stats, convert
+  ```
 - Logging: `--verbose`/`-v`, `--log <file>`; ETW provider optional later.
 - Locale: English only in v1; all strings in one table for later i18n.
 
