@@ -2,7 +2,9 @@
 
 #include <cstdint>
 #include <filesystem>
+#include <optional>
 #include <string>
+#include <vector>
 
 #include "errors.h"
 
@@ -22,6 +24,42 @@ struct VolumeInfo {
     [[nodiscard]] bool supports_vhdx() const noexcept {
         return filesystem_name == "NTFS" || filesystem_name == "ReFS";
     }
+};
+
+/// Read access to the WSL registry, plus the one write `relink` needs.
+///
+/// Key paths are relative to a root the implementation holds (`HKEY_CURRENT_USER`
+/// in production, a scratch key in the contract tests), so nothing here has to
+/// name a hive.
+///
+/// Everything is UTF-16 because the registry is: distribution names and paths
+/// keep their original encoding until the model layer converts them for display.
+/// A value that does not exist is `std::nullopt`, which is not the same as a read
+/// that failed -- the WSL layout has genuinely optional values (`VhdFileName` is
+/// absent on the legacy packaged layout) and the caller has to tell them apart.
+class IRegistry {
+public:
+    IRegistry() = default;
+    IRegistry(const IRegistry&) = delete;
+    IRegistry& operator=(const IRegistry&) = delete;
+    IRegistry(IRegistry&&) = delete;
+    IRegistry& operator=(IRegistry&&) = delete;
+    virtual ~IRegistry() = default;
+
+    /// Names of the immediate subkeys of `key`, in enumeration order.
+    [[nodiscard]] virtual Result<std::vector<std::wstring>> subkeys(std::wstring_view key) const = 0;
+
+    /// A `REG_SZ` (or `REG_EXPAND_SZ`) value, unexpanded.
+    [[nodiscard]] virtual Result<std::optional<std::wstring>> read_string(std::wstring_view key,
+                                                                          std::wstring_view value) const = 0;
+
+    /// A `REG_DWORD` value.
+    [[nodiscard]] virtual Result<std::optional<std::uint32_t>> read_dword(std::wstring_view key,
+                                                                          std::wstring_view value) const = 0;
+
+    /// Writes a `REG_SZ`. The only mutation M1 performs, for `orphans --relink`.
+    [[nodiscard]] virtual Status write_string(std::wstring_view key, std::wstring_view value,
+                                              std::wstring_view data) = 0;
 };
 
 /// Host filesystem queries. The only implementation that touches Win32 lives in

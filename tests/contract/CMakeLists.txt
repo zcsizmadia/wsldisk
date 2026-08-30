@@ -1,5 +1,6 @@
 wsldisk_add_test_suite(wsldisk_contract_tests contract
     filesystem_contract_test.cpp
+    registry_contract_test.cpp
     cli_smoke_test.cpp)
 
 target_link_libraries(wsldisk_contract_tests PRIVATE wsldisk::lib)

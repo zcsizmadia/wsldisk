@@ -47,6 +47,27 @@ const Win32Api& real_win32_api() {
                 return ::GetVolumePathNameW(file_name, volume_path_name, buffer_length);
             },
         .get_last_error = []() { return ::GetLastError(); },
+        .reg_open_key_ex =
+            [](HKEY key, LPCWSTR sub_key, DWORD options, REGSAM desired, PHKEY result) {
+                return ::RegOpenKeyExW(key, sub_key, options, desired, result);
+            },
+        .reg_close_key = [](HKEY key) { return ::RegCloseKey(key); },
+        .reg_enum_key_ex =
+            [](HKEY key, DWORD index, LPWSTR name, LPDWORD name_length, LPDWORD reserved, LPWSTR class_name,
+               LPDWORD class_length, PFILETIME last_write_time) {
+                return ::RegEnumKeyExW(key, index, name, name_length, reserved, class_name, class_length,
+                                       last_write_time);
+            },
+        .reg_query_value_ex =
+            [](HKEY key, LPCWSTR value_name, LPDWORD reserved, LPDWORD type, LPBYTE data,
+               LPDWORD data_length) {
+                return ::RegQueryValueExW(key, value_name, reserved, type, data, data_length);
+            },
+        .reg_set_value_ex =
+            [](HKEY key, LPCWSTR value_name, DWORD reserved, DWORD type, const BYTE* data,
+               DWORD data_length) {
+                return ::RegSetValueExW(key, value_name, reserved, type, data, data_length);
+            },
     };
     return table;
 }
