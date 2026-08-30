@@ -42,7 +42,7 @@ It finds vcpkg via `VCPKG_ROOT`, a `vcpkg` checkout next to this repository, or
 | `arm64-release` | MSVC, arm64, cross-compiled |
 | `x64-clang`, `arm64-clang` | clang-cl, for the second-opinion diagnostics CI runs |
 | `x64-coverage` | clang-cl with source-based coverage; hosts the `coverage` target |
-| `x64-asan` | clang-cl with AddressSanitizer |
+| `x64-asan` | MSVC with AddressSanitizer (clang-cl's Windows ASan miscompiles exception handling) |
 | `x64-lint` | single-config generator, only to produce `compile_commands.json` for clang-tidy |
 
 Test presets `x64-debug-unit`, `x64-debug-contract` and `x64-debug-integration`

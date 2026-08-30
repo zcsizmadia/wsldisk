@@ -5,7 +5,15 @@
 namespace wsldisk::platform {
 namespace {
 
-const Win32Api* g_active = nullptr;
+/// The table currently installed by a `ScopedWin32Api`, or null for the real one.
+///
+/// A function-local static rather than a namespace-scope variable: it has no
+/// static initialisation order to get wrong, and mutable global state is
+/// something to keep deliberately narrow.
+const Win32Api*& active_table() {
+    static const Win32Api* table = nullptr;
+    return table;
+}
 
 }  // namespace
 
@@ -44,16 +52,17 @@ const Win32Api& real_win32_api() {
 }
 
 const Win32Api& win32() {
-    return g_active != nullptr ? *g_active : real_win32_api();
+    const Win32Api* const active = active_table();
+    return active != nullptr ? *active : real_win32_api();
 }
 
 ScopedWin32Api::ScopedWin32Api(Win32Api replacement)
-    : previous_(g_active), replacement_(std::move(replacement)) {
-    g_active = &replacement_;
+    : previous_(active_table()), replacement_(std::move(replacement)) {
+    active_table() = &replacement_;
 }
 
 ScopedWin32Api::~ScopedWin32Api() {
-    g_active = previous_;
+    active_table() = previous_;
 }
 
 }  // namespace wsldisk::platform

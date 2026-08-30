@@ -21,22 +21,22 @@ struct Suffix {
 
 // Every suffix is a binary multiple; `KB` is an accepted alias for `KiB`, not 1000.
 constexpr std::array<Suffix, 16> suffixes{{
-    {"", 1},
-    {"b", 1},
-    {"k", kib},
-    {"kb", kib},
-    {"kib", kib},
-    {"m", mib},
-    {"mb", mib},
-    {"mib", mib},
-    {"g", gib},
-    {"gb", gib},
-    {"gib", gib},
-    {"t", tib},
-    {"tb", tib},
-    {"tib", tib},
-    {"p", pib},
-    {"pib", pib},
+    {.text = "", .multiplier = 1},
+    {.text = "b", .multiplier = 1},
+    {.text = "k", .multiplier = kib},
+    {.text = "kb", .multiplier = kib},
+    {.text = "kib", .multiplier = kib},
+    {.text = "m", .multiplier = mib},
+    {.text = "mb", .multiplier = mib},
+    {.text = "mib", .multiplier = mib},
+    {.text = "g", .multiplier = gib},
+    {.text = "gb", .multiplier = gib},
+    {.text = "gib", .multiplier = gib},
+    {.text = "t", .multiplier = tib},
+    {.text = "tb", .multiplier = tib},
+    {.text = "tib", .multiplier = tib},
+    {.text = "p", .multiplier = pib},
+    {.text = "pib", .multiplier = pib},
 }};
 
 constexpr std::uint64_t u64_max = std::numeric_limits<std::uint64_t>::max();
@@ -159,8 +159,8 @@ struct Number {
 [[nodiscard]] std::uint64_t scale_fraction(const Number& number, std::uint64_t multiplier) noexcept {
     // numerator * (multiplier / denominator) < multiplier, and
     // numerator * (multiplier % denominator) < denominator^2 <= 10^18: both fit.
-    return number.frac_numerator * (multiplier / number.frac_denominator) +
-           (number.frac_numerator * (multiplier % number.frac_denominator)) / number.frac_denominator;
+    return (number.frac_numerator * (multiplier / number.frac_denominator)) +
+           ((number.frac_numerator * (multiplier % number.frac_denominator)) / number.frac_denominator);
 }
 
 }  // namespace
@@ -212,7 +212,7 @@ std::string format_size(std::uint64_t bytes) {
         value /= 1024.0;
         ++unit_index;
     }
-    return std::format("{:.1f} {}", value, units[unit_index]);
+    return std::format("{:.1f} {}", value, units.at(unit_index));
 }
 
 std::string format_size_delta(std::int64_t bytes) {

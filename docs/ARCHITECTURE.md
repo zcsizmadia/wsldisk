@@ -2,7 +2,7 @@
 
 ## Layout
 
-```
+```text
 wsldisk/
 ├── CMakeLists.txt, CMakePresets.json, vcpkg.json
 ├── src/
@@ -64,20 +64,23 @@ undone (compaction, resize2fs shrink) are ordered last and preceded by a verify 
 ## Key workflows
 
 ### compact
-```
+
+```text
 preflight ──► fstrim (WslLaunch uid0) ──► terminate ──► wait unlock ──► [elevated? attach RO]
           ──► CompactVirtualDisk(+progress) ──► [detach] ──► measure ──► [restart]
 ```
 
 ### shrink
-```
+
+```text
 preflight(fit) ──► terminate ──► wsl --mount --vhd --bare (via helper/other distro)
    ──► e2fsck -f -y ──► resize2fs <dev> <size> ──► wsl --unmount
    ──► ResizeVirtualDisk(size) ──► CompactVirtualDisk ──► mount RO + e2fsck -n ──► unmount
 ```
 
 ### move
-```
+
+```text
 preflight(fs, space, lock) ──► terminate ──► sparse-aware copy(+progress) ──► [hash verify]
    ──► registry BasePath (undoable) ──► start distro smoke test ──► delete source | rollback
 ```

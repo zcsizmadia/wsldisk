@@ -10,6 +10,7 @@ Matrix: `{ msvc, clang-cl } × { x64, arm64 } × { Debug, Release }` on `windows
 (arm64 cross-compiles; arm64 tests run only on a self-hosted arm64 runner if available, otherwise build-only).
 
 Jobs:
+
 1. **lint** — `clang-format --dry-run --Werror`, `clang-tidy` (via `compile_commands.json`), `cmake-format`, markdown lint, `actionlint` for workflows.
 2. **build-test** — configure with preset, build, `ctest -L unit`, `ctest -L contract` (real Win32, no WSL). Uploads test logs (JUnit via Catch2 reporter) for the PR summary.
 3. **coverage** — clang-cl x64 Debug with `-fprofile-instr-generate -fcoverage-mapping`; runs unit + contract (+ integration when available); `llvm-profdata merge`, `llvm-cov export -format=lcov`; `scripts/check-coverage.py --lines 100 --branches 100 --functions 100`; uploads to Codecov; attaches HTML report artifact. **Required check.**
@@ -122,3 +123,28 @@ why, so the reasoning is not lost:
 `llvm-cov` also reports "3 functions have mismatched data" while merging. Those
 are inline functions from excluded third-party headers; every file under `src/`
 is present in the report with its full function list.
+
+### arm64 on native runners
+
+arm64 legs run on GitHub's hosted `windows-11-arm` runners rather than
+cross-compiling on x64. Cross-compilation built and linked fine once the vcvars
+architecture was fixed, but `catch_discover_tests` runs the freshly built binary
+to enumerate test cases, and an arm64 executable cannot run on an x64 host — the
+build failed at discovery. Building without registering the tests would have left
+the arm64 legs compile-only.
+
+Native runners are free for public repositories, so the arm64 legs now build
+*and* run their unit and contract suites, and `package arm64` smoke-tests the
+artifact it ships. `setup-toolchain` derives the vcvars host_target pair from
+`PROCESSOR_ARCHITECTURE`, so the same action serves both runner families.
+
+clang-cl legs stay x64-only: the arm64 runner image has no Windows LLVM, and
+clang-cl is there for second-opinion diagnostics, which x64 already provides.
+
+### clang-tidy is a blocking gate
+
+Resolved: the crash was specific to clang-tidy 18, which ships with Visual
+Studio. The pinned LLVM in `setup-toolchain` (20.1.8) analyses the tree cleanly,
+so the step no longer runs with `continue-on-error`. The version must stay
+pinned — floating it would reintroduce the crash on any machine whose default
+clang-tidy is older.

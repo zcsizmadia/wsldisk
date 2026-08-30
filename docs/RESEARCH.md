@@ -34,9 +34,9 @@ _Snapshot as of 2026-08-29. Spike results from M0 go at the bottom._
 
 _(fill in during M0)_
 
-- Compact unattached vs attached-RO after fstrim: 
-- Shrink via `wsl --mount --vhd --bare` on same distro: 
-- `WslLaunch` as uid 0: 
-- Registry `BasePath` forms observed (inbox 1.x / Store 2.x): 
-- Docker Desktop VHDX lock behaviour: 
-- Hosted runner WSL2 support: 
+- Compact unattached vs attached-RO after fstrim:
+- Shrink via `wsl --mount --vhd --bare` on same distro:
+- `WslLaunch` as uid 0:
+- Registry `BasePath` forms observed (inbox 1.x / Store 2.x):
+- Docker Desktop VHDX lock behaviour:
+- Hosted runner WSL2 support:
