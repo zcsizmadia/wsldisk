@@ -47,6 +47,36 @@ const Win32Api& real_win32_api() {
                 return ::GetVolumePathNameW(file_name, volume_path_name, buffer_length);
             },
         .get_last_error = []() { return ::GetLastError(); },
+        .find_first_file_ex =
+            [](LPCWSTR file_name, FINDEX_INFO_LEVELS info_level_id, LPVOID find_file_data,
+               FINDEX_SEARCH_OPS search_op, LPVOID search_filter, DWORD additional_flags) {
+                return ::FindFirstFileExW(file_name, info_level_id, find_file_data, search_op, search_filter,
+                                          additional_flags);
+            },
+        .find_next_file =
+            [](HANDLE find_file, LPWIN32_FIND_DATAW find_file_data) {
+                return ::FindNextFileW(find_file, find_file_data);
+            },
+        .find_close = [](HANDLE find_file) { return ::FindClose(find_file); },
+        .create_file =
+            [](LPCWSTR file_name, DWORD desired_access, DWORD share_mode,
+               LPSECURITY_ATTRIBUTES security_attributes, DWORD creation_disposition,
+               DWORD flags_and_attributes, HANDLE template_file) {
+                return ::CreateFileW(file_name, desired_access, share_mode, security_attributes,
+                                     creation_disposition, flags_and_attributes, template_file);
+            },
+        .device_io_control =
+            [](HANDLE device, DWORD control_code, LPVOID in_buffer, DWORD in_size, LPVOID out_buffer,
+               DWORD out_size, LPDWORD bytes_returned, LPOVERLAPPED overlapped) {
+                return ::DeviceIoControl(device, control_code, in_buffer, in_size, out_buffer, out_size,
+                                         bytes_returned, overlapped);
+            },
+        .delete_file = [](LPCWSTR file_name) { return ::DeleteFileW(file_name); },
+        .expand_environment_strings =
+            [](LPCWSTR source, LPWSTR destination, DWORD size) {
+                return ::ExpandEnvironmentStringsW(source, destination, size);
+            },
+        .sleep = [](DWORD milliseconds) { ::Sleep(milliseconds); },
         .reg_open_key_ex =
             [](HKEY key, LPCWSTR sub_key, DWORD options, REGSAM desired, PHKEY result) {
                 return ::RegOpenKeyExW(key, sub_key, options, desired, result);

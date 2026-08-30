@@ -195,6 +195,42 @@ public:
                                               std::wstring_view data) = 0;
 };
 
+/// One entry from a directory scan.
+struct DirectoryEntry {
+    /// Full path, not the bare name: every caller wants to open or report it.
+    std::filesystem::path path;
+    /// Logical size. Zero for a directory, which Windows does not track.
+    std::uint64_t size = 0;
+    bool is_directory = false;
+};
+
+/// A run of bytes a sparse file actually occupies on the volume.
+struct AllocatedRange {
+    std::uint64_t offset = 0;
+    std::uint64_t length = 0;
+};
+
+/// Wall-clock waiting, behind an interface so a retry loop can be tested without
+/// one.
+///
+/// `compact` waits for the utility VM to release a disk, which is seconds of
+/// real time and the slowest thing in the unit suite if it is left real. A fake
+/// advances on demand instead.
+class IClock {
+public:
+    IClock() = default;
+    IClock(const IClock&) = delete;
+    IClock& operator=(const IClock&) = delete;
+    IClock(IClock&&) = delete;
+    IClock& operator=(IClock&&) = delete;
+    virtual ~IClock() = default;
+
+    /// Monotonic, so a clock change mid-wait cannot make a timeout go backwards.
+    [[nodiscard]] virtual std::chrono::steady_clock::time_point now() const = 0;
+
+    virtual void sleep_for(std::chrono::milliseconds duration) const = 0;
+};
+
 /// Host filesystem queries. The only implementation that touches Win32 lives in
 /// `platform/`; unit tests substitute an in-memory fake.
 class IFileSystem {
@@ -223,6 +259,32 @@ public:
 
     /// Filesystem type and free space of the volume holding `path`.
     [[nodiscard]] virtual Result<VolumeInfo> volume_info(const std::filesystem::path& path) const = 0;
+
+    /// Entries of `directory` matching `pattern`, without recursing.
+    ///
+    /// `pattern` is a Win32 wildcard (`*.vhdx`), matched by the filesystem
+    /// rather than by us -- which means it also matches the 8.3 short name, so
+    /// `*.vhd` finds `disk.vhdx` too. Callers that care re-check the extension.
+    /// A directory that does not exist is an error; one that is empty is not.
+    [[nodiscard]] virtual Result<std::vector<DirectoryEntry>> list_directory(
+        const std::filesystem::path& directory, std::wstring_view pattern) const = 0;
+
+    /// The runs of bytes a file actually occupies.
+    ///
+    /// Summing the lengths gives what a sparse file costs on the volume, which
+    /// is what `list` reports. `is_sparse` only says whether the attribute is
+    /// set; spike #4 measured that the attribute cannot tell you how much of the
+    /// file is real, so quantifying it has to come from here. A non-sparse file
+    /// reports one range covering the whole length, and an empty file none.
+    [[nodiscard]] virtual Result<std::vector<AllocatedRange>> allocated_ranges(
+        const std::filesystem::path& path) const = 0;
+
+    /// Deletes a file. Only ever called after the user has confirmed.
+    [[nodiscard]] virtual Status remove(const std::filesystem::path& path) = 0;
+
+    /// Expands `%VAR%` references, for the default scan directories and config.
+    [[nodiscard]] virtual Result<std::filesystem::path> expand_environment(
+        const std::filesystem::path& path) const = 0;
 };
 
 }  // namespace wsldisk

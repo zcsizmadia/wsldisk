@@ -5,6 +5,8 @@ wsldisk_add_test_suite(wsldisk_unit_tests unit
     fakes/fake_registry_test.cpp
     model/size_test.cpp
     model/wsl_output_test.cpp
+    platform/clock_test.cpp
+    platform/filesystem_scan_test.cpp
     platform/filesystem_test.cpp
     platform/registry_test.cpp
     platform/virtual_disk_test.cpp

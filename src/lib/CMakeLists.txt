@@ -29,6 +29,8 @@ add_library(wsldisk_lib STATIC
     model/wsl_output.cpp
     model/wsl_output.h
 
+    platform/clock.cpp
+    platform/clock.h
     platform/filesystem.cpp
     platform/filesystem.h
     platform/registry.cpp
