@@ -21,7 +21,7 @@ jobs:
       contents: write
       pull-requests: write
     steps:
-      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09  # v5
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
 
       - uses: ./.github/actions/setup-toolchain
 
@@ -50,7 +50,7 @@ jobs:
 
       - name: Open a pull request
         if: steps.update.outputs.changed == 'True'
-        uses: peter-evans/create-pull-request@22a9089034f40e5a961c8808d113e2c98fb63676  # v7
+        uses: peter-evans/create-pull-request@5f6978faf089d4d20b00c7766989d076bb2fc7f1  # v8.1.1
         with:
           branch: chore/vcpkg-baseline
           commit-message: "chore(deps): bump vcpkg baseline to ${{ steps.update.outputs.after }}"
