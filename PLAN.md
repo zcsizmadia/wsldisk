@@ -209,7 +209,8 @@ Explicitly **not** commands: distro install/uninstall/run, networking/memory tun
 - `--yes` skips confirmations; interactive prompts only when stdin is a TTY.
 - Exit codes: 0 ok, 1 generic error, 2 usage, 3 preflight failed (nothing changed), 4 needs elevation, 5 partially completed (see output), 6 integrity check found errors, 10 distro not found, 11 distro running/locked.
 - Command tree:
-  ```
+
+  ```text
   wsldisk
   ├── list, info, usage, orphans, lock            # inspect (read-only)
   ├── trim, compact, clean, shrink, grow, verify  # reclaim & resize
@@ -220,6 +221,7 @@ Explicitly **not** commands: distro install/uninstall/run, networking/memory tun
   ├── doctor, schedule, config, completion        # maintenance & tooling
   └── (post-1.0) import, export, export-docker, stats, convert
   ```
+
 - Logging: `--verbose`/`-v`, `--log <file>`; ETW provider optional later.
 - Locale: English only in v1; all strings in one table for later i18n.
 
