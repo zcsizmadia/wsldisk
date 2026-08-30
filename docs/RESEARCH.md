@@ -236,6 +236,57 @@ Per distribution:
 5. **`Flavor`/`OsVersion` are populated by `wsl --import`** from the rootfs, so
    `info` can show the guest OS without booting the distribution.
 
+### `wslapi.dll` and uid 0 (issue #3) — answered, and it removes an API from the plan
+
+**`wslapi.dll` is unusable from an ordinary unpackaged process.** Every entry
+point tried returns the same refusal regardless of its argument:
+
+| Distribution | `WslIsDistributionRegistered` | `WslGetDistributionConfiguration` |
+|---|---|---|
+| `Ubuntu` (registered for months) | `False` | `0x80070005` E_ACCESSDENIED |
+| `docker-desktop` | `False` | `0x80070005` |
+| `rancher-desktop`, `rancher-desktop-data` | `False` | `0x80070005` |
+| a freshly imported distro | `False` | `0x80070005` |
+| the same, after it has been started | `False` | `0x80070005` |
+| **a name that does not exist at all** | `False` | `0x80070005` |
+
+Measured from a 64-bit unelevated process with `wslapi.dll` present in
+`System32`, while `wsl.exe --list` listed all four distributions.
+
+The last row is the informative one: a name that does not exist returns exactly
+the same status as one that does, so the call is being rejected before it ever
+looks at the argument. The most likely reason is that these APIs require the
+caller to have a package identity — they exist for the MSIX distribution
+launchers that ship on the Store — but whatever the mechanism, the behaviour is
+uniform refusal, and running elevated was not tested because an API that needed
+administrator rights to enumerate distributions would be unusable for `list`
+anyway.
+
+**Consequences for the plan:**
+
+1. **PLAN.md §5.3 lists `wslapi.dll` as a primary API.** It cannot be, and the
+   conflict is with a goal rather than a detail: goal 6 is a single
+   `wsldisk.exe` distributed through winget and scoop, which is exactly the
+   unpackaged shape these APIs refuse. `IWslHost` is therefore `wsl.exe` plus the
+   registry, with the COM `ILxssUserSession` surface from the open-sourced
+   microsoft/WSL as the later upgrade path that §5.3 already anticipated.
+2. **The uid-0 question is moot as originally posed.** `WslLaunch` takes no uid —
+   it runs as the distribution's `DefaultUid` — so the plan's "`WslLaunch` with
+   uid 0" was never going to work as written, and the function is unreachable
+   regardless. `wsl.exe -d <distro> -u root --exec /absolute/path` is the
+   mechanism, and the compaction spike already proved it: `fstrim` ran as root
+   against a distribution whose default user was root, and `-u root` overrides
+   `DefaultUid` in every case.
+3. **Enumeration comes from the registry, which the registry spike already
+   mapped.** Nothing is lost: `WslGetDistributionConfiguration` would have
+   returned version, `DefaultUid` and flags, all of which are registry values we
+   read directly.
+4. **The risk table's mitigation needs rewording.** "Prefer registry +
+   `wslapi.dll` + WSL COM" leaves only registry and COM; `wsl.exe` output parsing
+   is not a last resort but the primary mechanism for terminate, mount and
+   manage, so tolerating its UTF-16, CRLF and localisation matters more than the
+   table implied.
+
 ### Hosted-runner WSL2 (issue #7) — answered
 
 The integration job runs on hosted `windows-2025`: `wsl --install --no-distribution`,
@@ -252,7 +303,5 @@ consider passing `WSLENV`/a clean environment.
 
 ### Still open
 
-- `WslLaunch` as uid 0 with a non-root default user (#3) — the spikes above used
-  `wsl.exe -u root --exec`, which works; the `wslapi.dll` path is untested.
 - Elevation relaunch and named-pipe IPC (#6) — now lower priority, since the
   common compaction path needs no elevation at all.

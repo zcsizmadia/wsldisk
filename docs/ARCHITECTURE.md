@@ -10,7 +10,7 @@ wsldisk/
 │   │   ├── platform/            # thin RAII wrappers over Win32/COM (WIL-based)
 │   │   │   ├── virtual_disk.{h,cpp}   # OpenVirtualDisk/Compact/Resize/Attach/Detach/Create
 │   │   │   ├── registry.{h,cpp}       # HKCU\...\Lxss access
-│   │   │   ├── wsl_host.{h,cpp}       # wslapi.dll + wsl.exe process wrapper (+ COM later)
+│   │   │   ├── wsl_host.{h,cpp}       # wsl.exe process wrapper (+ WSL COM later)
 │   │   │   ├── filesystem.{h,cpp}     # sizes, sparse ranges, CopyFileEx, volume info
 │   │   │   ├── elevation.{h,cpp}      # IsElevated, RelaunchElevated, pipe IPC
 │   │   │   └── task_scheduler.{h,cpp}
@@ -39,8 +39,7 @@ wsldisk/
 ## Dependency rule
 
 `cli → ops → interfaces ← platform`. Operations never include Win32 headers; they talk to
-interfaces. `platform/` is the only place that includes `<windows.h>`, `<virtdisk.h>`,
-`<wslapi.h>`. Tests use fakes implementing the interfaces.
+interfaces. `platform/` is the only place that includes `<windows.h>` and `<virtdisk.h>`. Tests use fakes implementing the interfaces.
 
 ## Operation lifecycle
 
@@ -105,7 +104,7 @@ preflight(fs, space, lock) ──► terminate ──► sparse-aware copy(+prog
 - `GetVirtualDiskInformation` with `GET_VIRTUAL_DISK_INFO_SIZE` gives `VirtualSize`, `PhysicalSize`, `BlockSize`, `SectorSize`.
 - Actual on-disk bytes: `GetCompressedFileSizeW` (accounts for NTFS sparse/compressed); sparseness: `FILE_ATTRIBUTE_SPARSE_FILE` + `FSCTL_QUERY_ALLOCATED_RANGES`.
 - Registry: `HKCU\Software\Microsoft\Windows\CurrentVersion\Lxss\{GUID}` values `DistributionName` (REG_SZ), `BasePath` (REG_SZ, may be `\\?\C:\...`), `Version` (DWORD 1|2), `Flags` (DWORD), `DefaultUid` (DWORD), `VhdFileName` (REG_SZ, newer), `State`. `Lxss\DefaultDistribution` (REG_SZ GUID).
-- `wslapi.dll`: `WslLaunch(distro, cmd, useCwd, stdin, stdout, stderr, &process)` — runs as the distro's default uid; for root use `wsl.exe -d <d> -u root --exec ...` and read UTF-8 stdout.
+- **`wslapi.dll` is unusable.** Every entry point returns `E_ACCESSDENIED` from an unpackaged process -- even for a distribution name that does not exist -- so `WslLaunch`, `WslIsDistributionRegistered` and `WslGetDistributionConfiguration` are all out. Enumeration comes from the registry, and guest commands from `wsl.exe -d <d> -u root --exec ...` read as UTF-8 (measured, docs/RESEARCH.md).
 - **`wsl --exec` does not search PATH**: `--exec blkid` fails with `execvpe(blkid) failed` even though the child environment has `/sbin` on PATH. Always pass an absolute path (`/sbin/fstrim`, `/sbin/e2fsck`). Guest tooling is not a given either — a stock Alpine rootfs has busybox `blkid`/`blockdev`/`fstrim` but no e2fsprogs.
 - `wsl.exe` output is UTF-16LE (often with BOM) and localized. Parse only `--list --verbose`-style tabular output by column, never by header text; prefer registry.
 
