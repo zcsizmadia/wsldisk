@@ -74,8 +74,10 @@ integration suite imports.
   not counted for coverage, and code no test can reach is marked with an
   `LCOV_EXCL_*` comment saying why — see [docs/TESTING.md](docs/TESTING.md). Never
   delete a defensive check, or reshape working code, to satisfy the instrumenter.
-- Run the whole lint job locally before pushing; it is the easiest check to fail
-  from a laptop because most of its tools are not part of a C++ toolchain:
+- Run the whole lint job locally before pushing. **clang-format and clang-tidy
+  no longer run on pull requests** -- they need a vcpkg restore and an LLVM
+  install, which made them one of the two slowest checks gating a review, so
+  they run on `main` instead. Locally is now the first place they run:
 
   ```powershell
   . .\scripts\dev-shell.ps1
@@ -93,6 +95,17 @@ integration suite imports.
   clang-tidy has been seen to crash inside MSVC's `<format>`. Put the standalone
   LLVM's `bin` ahead of Visual Studio's. The compile database clang-tidy needs is
   refreshed automatically when it no longer lists every source.
+
+- **Run AddressSanitizer before pushing.** It no longer runs on pull requests,
+  so this is the first and only place it happens before merge, and it finds what
+  the ordinary builds cannot -- a dangling capture that every other
+  configuration happily passed, for instance:
+
+  ```powershell
+  cmake --preset x64-asan
+  cmake --build build/x64-asan --config Debug
+  ctest --test-dir build/x64-asan -C Debug -L "unit|contract" --output-on-failure
+  ```
 
 - `.clang-format` is authoritative; run before committing:
 

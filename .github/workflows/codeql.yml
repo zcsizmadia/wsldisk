@@ -1,9 +1,12 @@
 name: codeql
 
+# Not on pull requests. The analysis takes about seven minutes, which made it
+# the slowest thing gating every change, and it examines whole-program dataflow
+# rather than a diff -- a finding it reports on a branch is a finding it reports
+# on main a few minutes later. Running it on main and weekly keeps the coverage
+# without putting it on the critical path of every review.
 on:
   push:
-    branches: [main]
-  pull_request:
     branches: [main]
   schedule:
     # Weekly, so a new query pack finds old code even when nothing changes.
@@ -14,7 +17,7 @@ permissions:
 
 concurrency:
   group: codeql-${{ github.ref }}
-  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+  cancel-in-progress: false
 
 jobs:
   analyze:
