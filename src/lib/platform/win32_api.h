@@ -32,6 +32,21 @@ struct Win32Api {
         get_volume_information;
     std::function<BOOL(LPCWSTR file_name, LPWSTR volume_path_name, DWORD buffer_length)> get_volume_path_name;
     std::function<DWORD()> get_last_error;
+
+    // Registry. These return an LSTATUS directly rather than setting the last
+    // error, so their wrappers must not consult get_last_error.
+    std::function<LSTATUS(HKEY key, LPCWSTR sub_key, DWORD options, REGSAM desired, PHKEY result)>
+        reg_open_key_ex;
+    std::function<LSTATUS(HKEY key)> reg_close_key;
+    std::function<LSTATUS(HKEY key, DWORD index, LPWSTR name, LPDWORD name_length, LPDWORD reserved,
+                          LPWSTR class_name, LPDWORD class_length, PFILETIME last_write_time)>
+        reg_enum_key_ex;
+    std::function<LSTATUS(HKEY key, LPCWSTR value_name, LPDWORD reserved, LPDWORD type, LPBYTE data,
+                          LPDWORD data_length)>
+        reg_query_value_ex;
+    std::function<LSTATUS(HKEY key, LPCWSTR value_name, DWORD reserved, DWORD type, const BYTE* data,
+                          DWORD data_length)>
+        reg_set_value_ex;
 };
 
 /// The table that forwards to the real Win32 entry points.

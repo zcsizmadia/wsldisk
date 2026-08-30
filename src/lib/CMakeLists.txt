@@ -29,6 +29,8 @@ add_library(wsldisk_lib STATIC
 
     platform/filesystem.cpp
     platform/filesystem.h
+    platform/registry.cpp
+    platform/registry.h
     platform/win32_api.cpp
     platform/win32_api.h
     platform/win32_error.cpp
