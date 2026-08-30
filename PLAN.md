@@ -256,7 +256,8 @@ Explicitly **not** commands: distro install/uninstall/run, networking/memory tun
 
 - **Virtual Disk Service** (`virtdisk.h`, `VirtDisk.lib`): `OpenVirtualDisk`, `AttachVirtualDisk`, `DetachVirtualDisk`, `CompactVirtualDisk`, `ResizeVirtualDisk`, `CreateVirtualDisk` (differencing), `GetVirtualDiskInformation` (size, physical size, parent, identifier), `GetVirtualDiskOperationProgress`, `GetVirtualDiskPhysicalPath`.
 - **Registry**: `HKCU\Software\Microsoft\Windows\CurrentVersion\Lxss` — distro enumeration and `BasePath` repointing.
-- **WSL API** (`wslapi.h`, `wslapi.dll`): `WslIsDistributionRegistered`, `WslGetDistributionConfiguration`, `WslLaunch` (run `fstrim`/`resize2fs` as uid 0 with piped stdout). For features not in `wslapi.dll` (terminate, mount, manage), shell out to `wsl.exe` with UTF-16 output parsing, isolated behind an interface so it can be swapped for the COM `ILxssUserSession` surface from the open-sourced [microsoft/WSL](https://github.com/microsoft/WSL) later.
+- **WSL access**: `wsl.exe` for everything the registry cannot answer — launch, terminate, mount, unmount, manage — isolated behind `IWslHost` so it can be swapped for the COM `ILxssUserSession` surface from the open-sourced [microsoft/WSL](https://github.com/microsoft/WSL) later. Guest commands run as `wsl.exe -d <distro> -u root --exec /absolute/path`: `--exec` does not search PATH, and `-u root` is what gets uid 0 regardless of `DefaultUid`.
+  **Not `wslapi.dll`.** Measured: every entry point returns `E_ACCESSDENIED` from an unpackaged process, including for a distribution name that does not exist, so the refusal is about the caller rather than the argument. These APIs exist for MSIX distribution launchers, which is the one shape goal 6 rules out. See [docs/RESEARCH.md](docs/RESEARCH.md).
 - **File system**: `CopyFileEx`, `MoveFileEx`, `GetCompressedFileSizeW`, `FSCTL_QUERY_ALLOCATED_RANGES`, `FSCTL_SET_SPARSE`, `GetDiskFreeSpaceEx`, `GetVolumeInformation` (fs type).
 - **Elevation**: `ShellExecuteEx` with `runas`, named pipe for IPC; `CheckTokenMembership` to detect admin.
 - **Task Scheduler**: `ITaskService` COM for `schedule`.
@@ -293,7 +294,7 @@ Full design in [docs/CI.md](docs/CI.md): `ci.yml` (lint, MSVC+clang-cl × x64+ar
 | Risk | Impact | Mitigation |
 |---|---|---|
 | Corrupting a user's distro (shrink/move/snapshot) | Catastrophic | Never operate on attached disks; verify after each step; keep source until verified; `e2fsck -n` post-checks; loud `--dry-run` culture; integration tests on throwaway distros before every release |
-| `wsl.exe` output parsing is localized/fragile | Medium | Prefer registry + `wslapi.dll` + WSL COM; only parse `wsl.exe` where unavoidable and tolerate UTF-16 BOM, CRLF, localized headers by column position/heuristics; feature-detect WSL version |
+| `wsl.exe` output parsing is localized/fragile | **High** — `wslapi.dll` turned out to be unusable unpackaged, so `wsl.exe` is the primary mechanism, not a fallback | Take everything the registry can answer from the registry, and never parse localized prose: check exit codes, match by column position, and feature-detect the WSL version. Tolerate UTF-16LE with and without a BOM, and CRLF. Migrate to the WSL COM surface when it stabilises |
 | WSL internal COM interfaces change between releases | Medium | Abstract behind `IWslHost`; ship `wsl.exe` fallback |
 | Store-packaged WSL vs inbox WSL differences (paths, `VhdFileName`, `\\?\` prefixes) | Medium | Test matrix across WSL 1.x inbox, 2.x store; read both `BasePath` and `VhdFileName` |
 | Admin requirement for attach | UX | Unelevated compact path works post-`fstrim`; elevate only for full mode/shrink and explain why |
@@ -321,7 +322,6 @@ Full design in [docs/CI.md](docs/CI.md): `ci.yml` (lint, MSVC+clang-cl × x64+ar
 
 Still open:
 
-- Can `WslLaunch` reliably run as uid 0 when the distro's default user is non-root and `sudo` isn't passwordless? The spikes used `wsl.exe -u root --exec`, which works; the `wslapi.dll` path is untested. ([#3](https://github.com/zcsizmadia/wsldisk/issues/3))
 - Which `Flags` bit marks sparse mode — no distribution on the test machine had it set, so `list` reads sparseness from the file attributes instead. ([#4](https://github.com/zcsizmadia/wsldisk/issues/4))
 - Name collision check: `wsldisk` on winget/scoop/crates — confirm free before first release.
 
@@ -329,6 +329,7 @@ Answered in M0, measurements in [docs/RESEARCH.md](docs/RESEARCH.md):
 
 - **Does unattached `CompactVirtualDisk` reclaim what `fstrim` freed?** Yes, completely, in 0.2 s and with no administrator rights — but only through the V2 open parameters (D10).
 - **Is `wsl --terminate` enough to release the disk?** No. The utility VM holds it for as long as any distribution runs (D9).
+- **Can guest commands run as uid 0?** Yes, with `wsl.exe -u root --exec`. `wslapi.dll` cannot be used at all from an unpackaged process, which removes `WslLaunch` from the design entirely.
 - **Does `shrink` need a helper distribution?** Not as a mechanism: `wsl --mount --vhd --bare` works unelevated and any other running distribution can host the fsck and resize. A helper is a convenience for when none is available, and it must ship e2fsprogs.
 - **ARM64 CI availability.** GitHub's hosted `windows-11-arm` runners are free for public repositories, so the arm64 legs build and run their tests natively.
 
