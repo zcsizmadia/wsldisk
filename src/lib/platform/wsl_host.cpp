@@ -8,6 +8,7 @@
 #include <span>
 #include <utility>
 
+#include "../model/text.h"
 #include "../model/wsl_output.h"
 #include "scoped_handle.h"
 #include "win32_api.h"
@@ -233,18 +234,6 @@ namespace {
     return {};
 }
 
-/// UTF-8 to UTF-16 for the parts of a command line that come from the model.
-[[nodiscard]] std::wstring widen(std::string_view text) {
-    if (text.empty()) {
-        return {};
-    }
-    const int needed =
-        ::MultiByteToWideChar(CP_UTF8, 0, text.data(), static_cast<int>(text.size()), nullptr, 0);
-    std::wstring wide(static_cast<std::size_t>(needed), L'\0');
-    ::MultiByteToWideChar(CP_UTF8, 0, text.data(), static_cast<int>(text.size()), wide.data(), needed);
-    return wide;
-}
-
 /// How long the short, non-guest commands are given. They either answer quickly
 /// or WSL itself is wedged, and waiting longer helps nobody.
 constexpr std::chrono::milliseconds control_timeout{60'000};
@@ -266,7 +255,7 @@ Result<std::vector<std::string>> WslExeHost::running() const {
 }
 
 Status WslExeHost::terminate(std::string_view name) const {
-    return run_for_status({L"--terminate", widen(name)}, control_timeout,
+    return run_for_status({L"--terminate", model::to_wide(name)}, control_timeout,
                           std::format("terminating {}", name));
 }
 
@@ -288,9 +277,9 @@ Result<WslCommandResult> WslExeHost::run_as_root(std::string_view name, std::spa
                     "wsl --exec does not search PATH; pass a full path such as /usr/sbin/fstrim");
     }
 
-    std::vector<std::wstring> arguments{L"-d", widen(name), L"-u", L"root", L"--exec"};
+    std::vector<std::wstring> arguments{L"-d", model::to_wide(name), L"-u", L"root", L"--exec"};
     for (const std::string& piece : argv) {
-        arguments.push_back(widen(piece));
+        arguments.push_back(model::to_wide(piece));
     }
 
     const auto raw = run_wsl(arguments, timeout);

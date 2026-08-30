@@ -31,11 +31,13 @@ public:
         : IRegistry(),
           keys_(std::move(other.keys_)),
           failure_(std::move(other.failure_)),
+          value_failures_(std::move(other.value_failures_)),
           writes_(std::move(other.writes_)) {}
 
     FakeRegistry& operator=(FakeRegistry&& other) noexcept {
         keys_ = std::move(other.keys_);
         failure_ = std::move(other.failure_);
+        value_failures_ = std::move(other.value_failures_);
         writes_ = std::move(other.writes_);
         return *this;
     }
@@ -50,6 +52,15 @@ public:
 
     /// Makes every subsequent call fail with `error`.
     void fail_with(Error error) { failure_ = std::move(error); }
+
+    /// Makes reads of one named value fail, leaving every other read working.
+    ///
+    /// Enumeration reads a dozen values per distribution and stops at the first
+    /// failure, so a fake that fails everything can only ever exercise the first
+    /// read. This reaches the others.
+    void fail_value(std::wstring value, Error error) {
+        value_failures_.insert_or_assign(std::move(value), std::move(error));
+    }
 
     /// Records every `write_string`, so an operation's rollback can be asserted.
     struct Write {
@@ -107,6 +118,9 @@ private:
         if (failure_) {
             return std::unexpected(*failure_);
         }
+        if (const auto named = value_failures_.find(std::wstring{value}); named != value_failures_.end()) {
+            return std::unexpected(named->second);
+        }
         const auto key_it = keys_.find(std::wstring{key});
         if (key_it == keys_.end()) {
             return fail(ErrorCode::Generic, "no such key", "check the key path");
@@ -124,6 +138,7 @@ private:
 
     std::map<std::wstring, ValueMap> keys_;
     std::optional<Error> failure_;
+    std::map<std::wstring, Error> value_failures_;
     std::vector<Write> writes_;
 };
 

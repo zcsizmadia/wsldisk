@@ -48,3 +48,6 @@ endfunction()
 
 wsldisk_add_fuzzer(fuzz_parse_size fuzz_parse_size.cpp)
 wsldisk_add_fuzzer(fuzz_parse_wsl_list fuzz_parse_wsl_list.cpp)
+wsldisk_add_fuzzer(fuzz_parse_distro fuzz_parse_distro.cpp)
+# The distro fuzzer drives enumeration through the in-memory registry fake.
+target_include_directories(fuzz_parse_distro PRIVATE "${CMAKE_SOURCE_DIR}/tests/fakes")
