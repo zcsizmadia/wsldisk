@@ -1,6 +1,19 @@
+# Rules that catch real readability problems stay on. The two disabled below are
+# stylistic and would mean rewriting documents that read fine as they are.
 default: true
+
 MD013: false   # line length is enforced by review, not a linter
 MD024:
   siblings_only: true
 MD033: false   # inline HTML is allowed in docs tables
 MD041: false   # files may start with a badge block
+
+# `**Repo & tooling**` above a checklist groups the list; it is not a heading,
+# and promoting it to one would put it in every table of contents.
+MD036: false
+
+# The documents use underscores for emphasis throughout.
+MD049:
+  style: underscore
+MD050:
+  style: asterisk

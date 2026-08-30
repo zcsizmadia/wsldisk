@@ -11,6 +11,7 @@ Legend: `[ ]` todo · `[~]` in progress · `[x]` done
 Goal: de-risk the unknowns, have a compiling skeleton and CI.
 
 **Repo & tooling**
+
 - [x] CMake presets (`x64-debug`, `x64-release`, `arm64-release`, plus `x64-clang`, `arm64-clang`, `x64-coverage`, `x64-asan`, `x64-lint`), vcpkg manifest with a pinned baseline, Ninja Multi-Config
 - [x] `libwsldisk` static lib + `wsldisk` exe + `tests` targets; `wsldisk --version` works
 - [x] `.clang-format`, `.clang-tidy`, `.editorconfig`, `.gitattributes`, pre-commit hook (`.githooks/`, `scripts/install-hooks.ps1`)
@@ -30,6 +31,7 @@ Goal: de-risk the unknowns, have a compiling skeleton and CI.
 - [x] Issue/PR templates, CODEOWNERS, `SECURITY.md`
 
 **Technical spikes** (throwaway code under `spikes/`, results recorded in `docs/RESEARCH.md`)
+
 - [ ] `CompactVirtualDisk` unattached vs attached-RO: measure reclaimed bytes after `fstrim` on a 20 GB test distro ([#1](https://github.com/zcsizmadia/wsldisk/issues/1))
 - [ ] Confirm `ResizeVirtualDisk` shrink path + `resize2fs` via `wsl --mount --vhd --bare` ([#2](https://github.com/zcsizmadia/wsldisk/issues/2))
 - [ ] `WslLaunch` as uid 0 with a non-root default user ([#3](https://github.com/zcsizmadia/wsldisk/issues/3))

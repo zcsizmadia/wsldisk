@@ -22,14 +22,14 @@ struct ErrorCodeName {
 // "no case matched" edge that no test can reach, whereas the fall-through here is
 // reachable -- and therefore tested -- for a value that came from a cast.
 constexpr std::array<ErrorCodeName, 8> error_code_names{{
-    {ErrorCode::Generic, "generic"},
-    {ErrorCode::Usage, "usage"},
-    {ErrorCode::Preflight, "preflight"},
-    {ErrorCode::NeedsElevation, "needs-elevation"},
-    {ErrorCode::Partial, "partial"},
-    {ErrorCode::IntegrityCheckFailed, "integrity-check-failed"},
-    {ErrorCode::DistroNotFound, "distro-not-found"},
-    {ErrorCode::DistroBusy, "distro-busy"},
+    {.code = ErrorCode::Generic, .name = "generic"},
+    {.code = ErrorCode::Usage, .name = "usage"},
+    {.code = ErrorCode::Preflight, .name = "preflight"},
+    {.code = ErrorCode::NeedsElevation, .name = "needs-elevation"},
+    {.code = ErrorCode::Partial, .name = "partial"},
+    {.code = ErrorCode::IntegrityCheckFailed, .name = "integrity-check-failed"},
+    {.code = ErrorCode::DistroNotFound, .name = "distro-not-found"},
+    {.code = ErrorCode::DistroBusy, .name = "distro-busy"},
 }};
 
 }  // namespace

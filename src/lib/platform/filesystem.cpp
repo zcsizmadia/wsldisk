@@ -36,7 +36,7 @@ bool Win32FileSystem::exists(const std::filesystem::path& path) const {
 
 Result<std::uint64_t> Win32FileSystem::file_size(const std::filesystem::path& path) const {
     WIN32_FILE_ATTRIBUTE_DATA data{};
-    if (!win32().get_file_attributes_ex(path.c_str(), GetFileExInfoStandard, &data)) {
+    if (win32().get_file_attributes_ex(path.c_str(), GetFileExInfoStandard, &data) == FALSE) {
         return std::unexpected(
             error_from_win32(win32().get_last_error(), std::format("read the size of {}", path.string())));
     }
@@ -71,8 +71,8 @@ Result<VolumeInfo> Win32FileSystem::volume_info(const std::filesystem::path& pat
     // An extended-length path (\\?\D:\wsl\ext4.vhdx) or a mounted-folder path only resolves
     // to the right volume through GetVolumePathName; never assume `root_path()`.
     std::array<wchar_t, MAX_PATH + 1> volume_root{};
-    if (!win32().get_volume_path_name(path.c_str(), volume_root.data(),
-                                      static_cast<DWORD>(volume_root.size()))) {
+    if (win32().get_volume_path_name(path.c_str(), volume_root.data(),
+                                     static_cast<DWORD>(volume_root.size())) == FALSE) {
         return std::unexpected(error_from_win32(win32().get_last_error(),
                                                 std::format("resolve the volume holding {}", path.string())));
     }
@@ -80,15 +80,16 @@ Result<VolumeInfo> Win32FileSystem::volume_info(const std::filesystem::path& pat
     ULARGE_INTEGER free_to_caller{};
     ULARGE_INTEGER total{};
     ULARGE_INTEGER total_free{};
-    if (!win32().get_disk_free_space_ex(volume_root.data(), &free_to_caller, &total, &total_free)) {
+    if (win32().get_disk_free_space_ex(volume_root.data(), &free_to_caller, &total, &total_free) == FALSE) {
         return std::unexpected(
             error_from_win32(win32().get_last_error(),
                              std::format("read free space on {}", ascii_narrow(volume_root.data()))));
     }
 
     std::array<wchar_t, MAX_PATH + 1> filesystem_name{};
-    if (!win32().get_volume_information(volume_root.data(), nullptr, 0, nullptr, nullptr, nullptr,
-                                        filesystem_name.data(), static_cast<DWORD>(filesystem_name.size()))) {
+    if (win32().get_volume_information(volume_root.data(), nullptr, 0, nullptr, nullptr, nullptr,
+                                       filesystem_name.data(),
+                                       static_cast<DWORD>(filesystem_name.size())) == FALSE) {
         return std::unexpected(error_from_win32(
             win32().get_last_error(),
             std::format("read volume information for {}", ascii_narrow(volume_root.data()))));

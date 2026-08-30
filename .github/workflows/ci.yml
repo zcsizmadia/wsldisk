@@ -44,12 +44,10 @@ jobs:
         shell: pwsh
         run: cmake --preset x64-lint
 
-      # Advisory until the LLVM/MSVC-STL combination is stable: clang-tidy 18
-      # crashes parsing the C++23 headers shipped with MSVC 14.4x, which makes
-      # its findings unreliable rather than merely noisy. Tracked as an issue;
-      # drop `continue-on-error` once a pinned LLVM analyses the tree cleanly.
-      - name: clang-tidy (advisory)
-        continue-on-error: true
+      # Blocking. The pinned LLVM (see setup-toolchain) parses the MSVC C++23
+      # headers cleanly; clang-tidy 18, which ships with VS, crashes on them, so
+      # the version must stay pinned rather than floating.
+      - name: clang-tidy
         shell: pwsh
         run: |
           $files = Get-ChildItem -Recurse -Path src -Include *.cpp | ForEach-Object { $_.FullName }
@@ -84,13 +82,26 @@ jobs:
 
   build-test:
     name: ${{ matrix.toolchain }} ${{ matrix.architecture }} ${{ matrix.configuration }}
-    runs-on: windows-2025
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 45
     strategy:
       fail-fast: false
       matrix:
         toolchain: [msvc, clang-cl]
         architecture: [x64, arm64]
         configuration: [Debug, Release]
+        include:
+          - architecture: x64
+            runner: windows-2025
+          # arm64 builds run on native arm64 hardware rather than cross-compiling,
+          # so the tests actually execute instead of being built and skipped.
+          - architecture: arm64
+            runner: windows-11-arm
+        exclude:
+          # clang-cl is a second-opinion compiler, and there is no arm64 Windows
+          # LLVM in the runner image; MSVC covers the arm64 legs.
+          - toolchain: clang-cl
+            architecture: arm64
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09  # v5
 
@@ -104,10 +115,9 @@ jobs:
         shell: pwsh
         run: |
           $preset = switch ('${{ matrix.toolchain }}-${{ matrix.architecture }}') {
-            'msvc-x64'      { 'x64-debug' }
-            'msvc-arm64'    { 'arm64-release' }
-            'clang-cl-x64'  { 'x64-clang' }
-            'clang-cl-arm64' { 'arm64-clang' }
+            'msvc-x64'     { 'x64-debug' }
+            'msvc-arm64'   { 'arm64-release' }
+            'clang-cl-x64' { 'x64-clang' }
           }
           "name=$preset" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
 
@@ -119,21 +129,16 @@ jobs:
         shell: pwsh
         run: cmake --build build/${{ steps.preset.outputs.name }} --config ${{ matrix.configuration }}
 
-      # arm64 binaries are cross-compiled on an x64 runner, so they can be built
-      # but not executed. Coverage of the arm64 leg comes from the nightly job on
-      # real hardware (see ROADMAP.md M4).
       - name: Unit tests
-        if: matrix.architecture == 'x64'
         shell: pwsh
         run: ctest --test-dir build/${{ steps.preset.outputs.name }} -C ${{ matrix.configuration }} -L unit --output-on-failure
 
       - name: Contract tests
-        if: matrix.architecture == 'x64'
         shell: pwsh
         run: ctest --test-dir build/${{ steps.preset.outputs.name }} -C ${{ matrix.configuration }} -L contract --output-on-failure
 
       - name: Upload test results
-        if: always() && matrix.architecture == 'x64'
+        if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4
         with:
           name: test-results-${{ matrix.toolchain }}-${{ matrix.architecture }}-${{ matrix.configuration }}
@@ -247,11 +252,16 @@ jobs:
 
   package:
     name: package ${{ matrix.architecture }}
-    runs-on: windows-2025
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 45
     strategy:
       fail-fast: false
       matrix:
-        architecture: [x64, arm64]
+        include:
+          - architecture: x64
+            runner: windows-2025
+          - architecture: arm64
+            runner: windows-11-arm
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09  # v5
 
@@ -272,8 +282,9 @@ jobs:
           cmake --preset ${{ steps.preset.outputs.name }}
           cmake --build build/${{ steps.preset.outputs.name }} --config Release
 
+      # Runs natively on both architectures now, so the arm64 artifact is known to
+      # start rather than merely to have linked.
       - name: Smoke test
-        if: matrix.architecture == 'x64'
         shell: pwsh
         run: |
           $exe = "build/${{ steps.preset.outputs.name }}/src/cli/Release/wsldisk.exe"
