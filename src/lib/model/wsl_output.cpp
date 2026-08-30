@@ -1,39 +1,13 @@
 #include "wsl_output.h"
 
 #include <cstdint>
+#include <string>
 #include <string_view>
+
+#include "text.h"
 
 namespace wsldisk::model {
 namespace {
-
-constexpr char32_t replacement_character = 0xFFFD;
-constexpr char32_t high_surrogate_first = 0xD800;
-constexpr char32_t high_surrogate_last = 0xDBFF;
-constexpr char32_t low_surrogate_first = 0xDC00;
-constexpr char32_t low_surrogate_last = 0xDFFF;
-constexpr char32_t supplementary_base = 0x10000;
-
-void append_utf8(std::string& text, char32_t code_point) {
-    if (code_point < 0x80) {
-        text.push_back(static_cast<char>(code_point));
-        return;
-    }
-    if (code_point < 0x800) {
-        text.push_back(static_cast<char>(0xC0 | (code_point >> 6)));
-        text.push_back(static_cast<char>(0x80 | (code_point & 0x3F)));
-        return;
-    }
-    if (code_point < supplementary_base) {
-        text.push_back(static_cast<char>(0xE0 | (code_point >> 12)));
-        text.push_back(static_cast<char>(0x80 | ((code_point >> 6) & 0x3F)));
-        text.push_back(static_cast<char>(0x80 | (code_point & 0x3F)));
-        return;
-    }
-    text.push_back(static_cast<char>(0xF0 | (code_point >> 18)));
-    text.push_back(static_cast<char>(0x80 | ((code_point >> 12) & 0x3F)));
-    text.push_back(static_cast<char>(0x80 | ((code_point >> 6) & 0x3F)));
-    text.push_back(static_cast<char>(0x80 | (code_point & 0x3F)));
-}
 
 [[nodiscard]] char16_t unit_at(std::span<const std::byte> bytes, std::size_t index) {
     const auto low = static_cast<std::uint16_t>(bytes[index]);
@@ -62,36 +36,17 @@ std::string decode_utf16le(std::span<const std::byte> bytes) {
         index = 2;
     }
 
-    std::string text;
+    // A trailing odd byte is dropped rather than half-decoded: a pipe read can
+    // end mid-character, and half a unit is not one.
+    std::wstring units;
+    units.reserve((bytes.size() - index) / 2);
     while (index + 1 < bytes.size()) {
-        const char16_t unit = unit_at(bytes, index);
+        units.push_back(static_cast<wchar_t>(unit_at(bytes, index)));
         index += 2;
-
-        if (unit >= high_surrogate_first && unit <= high_surrogate_last) {
-            if (index + 1 < bytes.size()) {
-                const char16_t low = unit_at(bytes, index);
-                if (low >= low_surrogate_first && low <= low_surrogate_last) {
-                    index += 2;
-                    append_utf8(text, supplementary_base +
-                                          ((static_cast<char32_t>(unit) - high_surrogate_first) << 10) +
-                                          (static_cast<char32_t>(low) - low_surrogate_first));
-                    continue;
-                }
-            }
-            // A high surrogate with nothing valid after it: truncated read or
-            // corrupt stream, either way not fatal.
-            append_utf8(text, replacement_character);
-            continue;
-        }
-
-        if (unit >= low_surrogate_first && unit <= low_surrogate_last) {
-            append_utf8(text, replacement_character);
-            continue;
-        }
-
-        append_utf8(text, unit);
     }
-    return text;
+    // Surrogate handling, including the unpaired cases this stream produces when
+    // a read is truncated, lives in one place.
+    return to_utf8(units);
 }
 
 std::vector<std::string> parse_distribution_list(std::span<const std::byte> bytes) {
