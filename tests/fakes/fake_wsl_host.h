@@ -31,6 +31,7 @@ public:
           terminate_failure_(std::move(other.terminate_failure_)),
           shutdown_failure_(std::move(other.shutdown_failure_)),
           mount_failure_(std::move(other.mount_failure_)),
+          command_failure_(std::move(other.command_failure_)),
           commands_(std::move(other.commands_)),
           terminated_(std::move(other.terminated_)),
           mounted_(std::move(other.mounted_)),
@@ -58,6 +59,11 @@ public:
     void fail_shutdown(Error error) { shutdown_failure_ = std::move(error); }
 
     void fail_mount(Error error) { mount_failure_ = std::move(error); }
+
+    /// Makes running a guest command fail outright -- wsl.exe not answering,
+    /// rather than the command inside returning non-zero. The two are different
+    /// and callers report them differently.
+    void fail_command(Error error) { command_failure_ = std::move(error); }
 
     [[nodiscard]] const std::vector<Invocation>& commands() const noexcept { return commands_; }
 
@@ -110,6 +116,10 @@ public:
                         "wsl --exec does not search PATH; pass a full path such as /usr/sbin/fstrim");
         }
 
+        if (command_failure_) {
+            return std::unexpected(*command_failure_);
+        }
+
         commands_.push_back(Invocation{
             .distribution = std::string{name}, .argv = {argv.begin(), argv.end()}, .timeout = timeout});
 
@@ -145,6 +155,7 @@ private:
     std::optional<Error> terminate_failure_;
     std::optional<Error> shutdown_failure_;
     std::optional<Error> mount_failure_;
+    std::optional<Error> command_failure_;
     mutable std::vector<Invocation> commands_;
     mutable std::vector<std::string> terminated_;
     mutable std::vector<std::string> mounted_;

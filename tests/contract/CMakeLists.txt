@@ -1,5 +1,6 @@
 wsldisk_add_test_suite(wsldisk_contract_tests contract
     ../support/fail_without_dialogs.cpp
+    disk_info_contract_test.cpp
     distro_contract_test.cpp
     filesystem_contract_test.cpp
     filesystem_scan_contract_test.cpp

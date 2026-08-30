@@ -29,6 +29,7 @@ public:
           disks_(std::move(other.disks_)),
           open_failure_(std::move(other.open_failure_)),
           compact_failure_(std::move(other.compact_failure_)),
+          information_failure_(std::move(other.information_failure_)),
           create_failure_(std::move(other.create_failure_)),
           opened_(std::move(other.opened_)),
           compacted_(std::move(other.compacted_)),
@@ -47,6 +48,10 @@ public:
     void fail_open(Error error) { open_failure_ = std::move(error); }
 
     void fail_compact(Error error) { compact_failure_ = std::move(error); }
+
+    /// Makes `information()` fail on a handle that opened. A disk can be
+    /// openable and still refuse to describe itself.
+    void fail_information(Error error) { information_failure_ = std::move(error); }
 
     void fail_create(Error error) { create_failure_ = std::move(error); }
 
@@ -94,6 +99,9 @@ private:
         Handle(const FakeVirtualDisk& owner, std::wstring path) : owner_(owner), path_(std::move(path)) {}
 
         [[nodiscard]] Result<VirtualDiskInfo> information() const override {
+            if (owner_.information_failure_) {
+                return std::unexpected(*owner_.information_failure_);
+            }
             return owner_.disks_.at(path_).info;
         }
 
@@ -124,6 +132,7 @@ private:
     mutable std::map<std::wstring, Disk> disks_;
     std::optional<Error> open_failure_;
     std::optional<Error> compact_failure_;
+    std::optional<Error> information_failure_;
     std::optional<Error> create_failure_;
     mutable std::vector<std::wstring> opened_;
     mutable std::vector<std::wstring> compacted_;

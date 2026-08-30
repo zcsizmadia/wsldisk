@@ -3,6 +3,7 @@ wsldisk_add_test_suite(wsldisk_unit_tests unit
     errors_test.cpp
     version_test.cpp
     fakes/fake_registry_test.cpp
+    model/disk_info_test.cpp
     model/distro_test.cpp
     model/size_test.cpp
     model/text_test.cpp
