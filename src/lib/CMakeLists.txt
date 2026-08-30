@@ -35,6 +35,11 @@ add_library(wsldisk_lib STATIC
     model/wsl_output.cpp
     model/wsl_output.h
 
+    ops/operation.cpp
+    ops/operation.h
+    ops/runner.cpp
+    ops/runner.h
+
     platform/clock.cpp
     platform/clock.h
     platform/filesystem.cpp

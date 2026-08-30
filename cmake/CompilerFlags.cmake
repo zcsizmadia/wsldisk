@@ -83,7 +83,14 @@ if(MSVC)
         target_compile_options(wsldisk_flags INTERFACE
             -Wno-unused-command-line-argument
             -Wno-c++98-compat
-            -Wno-c++98-compat-pedantic)
+            -Wno-c++98-compat-pedantic
+            # Every aggregate here gives its members default initialisers, so a
+            # field left out of a designated initialiser is explicitly defaulted
+            # rather than left indeterminate -- which is the thing this warning
+            # exists to catch. Keeping it on only forces `Thing t; t.a = 1;`
+            # blocks that say less than `Thing{.a = 1}` did, and MSVC does not
+            # warn, so the two compilers disagreed about identical code.
+            -Wno-missing-designated-field-initializers)
     endif()
 endif()
 
