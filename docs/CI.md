@@ -12,12 +12,19 @@ Matrix: `{ msvc, clang-cl } × { x64, arm64 } × { Debug, Release }` on `windows
 Jobs:
 
 1. **lint** — markdown lint, `actionlint` for workflows, `ruff` and the coverage gate's own tests. Runs on every pull request: it needs no C++ toolchain, so it costs seconds, and markdownlint cannot run on a machine that cannot reach the npm registry.
-1. **lint (clang-format, clang-tidy)** — the same two tools `scripts/lint.ps1` runs locally, against the pinned LLVM and a `compile_commands.json`. **`main` and the weekly schedule only.** It needs a vcpkg restore and a choco LLVM install, about six minutes, which made it one of the two things gating every review. Both tools are pinned and deterministic and the local script refuses to run on any other version, so a local pass means what CI would have said; the trade is that a slip nobody ran locally lands on `main` and is fixed forward.
-2. **build-test** — configure with preset, build, `ctest -L unit`, `ctest -L contract` (real Win32, no WSL). Uploads test logs (JUnit via Catch2 reporter) for the PR summary.
-3. **coverage** — clang-cl x64 Debug with `-fprofile-instr-generate -fcoverage-mapping`; runs unit + contract (+ integration when available); `llvm-profdata merge`, `llvm-cov export -format=lcov`; `scripts/check-coverage.py --lines 100 --branches 100 --functions 100`; uploads to Codecov; attaches HTML report artifact. **Required check.**
-4. **asan** — clang-cl Debug with `-fsanitize=address`, unit + contract tests. **Required check.**
-5. **integration** — `WSLDISK_INTEGRATION=1`, installs WSL (`wsl --install --no-distribution`), fetches the pinned Alpine fixture, runs `ctest -L integration`. Runs on hosted `windows-2025` if the M0 spike confirms nested virtualisation works; otherwise on `[self-hosted, windows, wsl2]` and only for pushes to `main` + `pull_request_target` from trusted authors. Always cleans up test distros in a `post` step.
-6. **package** — Release x64/arm64 static builds, `wsldisk --version` smoke test, zip + SHA256SUMS, uploaded as artifacts (consumed by `release.yml`).
+2. **lint (clang-format, clang-tidy)** — the same two tools `scripts/lint.ps1` runs locally, against the pinned LLVM and a `compile_commands.json`. **`main` and the weekly schedule only.** It needs a vcpkg restore and a choco LLVM install, about six minutes, which made it one of the two things gating every review. Both tools are pinned and deterministic and the local script refuses to run on any other version, so a local pass means what CI would have said; the trade is that a slip nobody ran locally lands on `main` and is fixed forward.
+3. **build-test** — configure with preset, build, `ctest -L unit`, `ctest -L contract` (real Win32, no WSL). Uploads test logs (JUnit via Catch2 reporter) for the PR summary.
+4. **coverage** — clang-cl x64 Debug with `-fprofile-instr-generate -fcoverage-mapping`; runs unit + contract (+ integration when available); `llvm-profdata merge`, `llvm-cov export -format=lcov`; `scripts/check-coverage.py --lines 100 --branches 100 --functions 100`; uploads to Codecov; attaches HTML report artifact. **Required check.**
+5. **asan** — clang-cl Debug with `-fsanitize=address`, unit + contract tests. **Required check.**
+6. **integration** — `WSLDISK_INTEGRATION=1`, installs WSL (`wsl --install --no-distribution`), fetches the pinned Alpine fixture, runs `ctest -L integration`. Runs on hosted `windows-2025` if the M0 spike confirms nested virtualisation works; otherwise on `[self-hosted, windows, wsl2]` and only for pushes to `main` + `pull_request_target` from trusted authors. Always cleans up test distros in a `post` step.
+7. **package** — Release x64/arm64 static builds, `wsldisk --version` smoke test, zip + SHA256SUMS, uploaded as artifacts (consumed by `release.yml`).
+
+> **Temporary, and meant to be reverted.** Keeping `clang-format`, `clang-tidy`
+> and CodeQL off pull requests is a deliberate trade for speed while the
+> platform layer is being built out quickly. Once the pace settles -- M1
+> complete is the natural point -- put them back: delete the
+> `if: github.event_name != 'pull_request'` on `lint-native` in `ci.yml`, and
+> restore the `pull_request` trigger in `codeql.yml`. Both are one line.
 
 Branch protection on `main`: lint, build-test (all matrix legs), coverage, asan, package required; linear history; signed commits encouraged.
 
