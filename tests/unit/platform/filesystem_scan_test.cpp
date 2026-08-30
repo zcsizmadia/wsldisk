@@ -12,6 +12,7 @@
 #include <memory>
 #include <string>
 #include <string_view>
+#include <utility>
 #include <vector>
 
 #include "errors.h"
@@ -52,15 +53,17 @@ void fill(LPWIN32_FIND_DATAW data, const Entry& entry) {
 }
 
 /// A table that enumerates `entries` and then reports the end of the listing.
-Win32Api listing(const std::vector<Entry>& entries, std::shared_ptr<std::size_t> position) {
+///
+/// By value for the same reason as `ranges_of`: the table outlives the call.
+Win32Api listing(std::vector<Entry> entries, std::shared_ptr<std::size_t> position) {
     Win32Api api;
-    api.find_first_file_ex = [&entries, position](LPCWSTR, FINDEX_INFO_LEVELS, LPVOID data, FINDEX_SEARCH_OPS,
-                                                  LPVOID, DWORD) -> HANDLE {
+    api.find_first_file_ex = [entries, position](LPCWSTR, FINDEX_INFO_LEVELS, LPVOID data, FINDEX_SEARCH_OPS,
+                                                 LPVOID, DWORD) -> HANDLE {
         *position = 0;
         fill(static_cast<LPWIN32_FIND_DATAW>(data), entries.front());
         return search_handle;
     };
-    api.find_next_file = [&entries, position](HANDLE, LPWIN32_FIND_DATAW data) -> BOOL {
+    api.find_next_file = [entries = std::move(entries), position](HANDLE, LPWIN32_FIND_DATAW data) -> BOOL {
         if (++*position >= entries.size()) {
             return FALSE;
         }
@@ -184,7 +187,11 @@ TEST_CASE("list_directory reports a listing that broke part way", "[platform][fs
 namespace {
 
 /// A table that answers the range query with `ranges` in one go.
-Win32Api ranges_of(std::uint64_t size, const std::vector<FILE_ALLOCATED_RANGE_BUFFER>& ranges) {
+///
+/// `ranges` is taken and captured by value on purpose: callers pass a temporary,
+/// and a reference capture would dangle the moment the call expression ended --
+/// which is exactly what AddressSanitizer caught the first time.
+Win32Api ranges_of(std::uint64_t size, std::vector<FILE_ALLOCATED_RANGE_BUFFER> ranges) {
     Win32Api api;
     api.get_file_attributes_ex = [size](LPCWSTR, GET_FILEEX_INFO_LEVELS, LPVOID data) -> BOOL {
         auto* attributes = static_cast<WIN32_FILE_ATTRIBUTE_DATA*>(data);
@@ -197,8 +204,8 @@ Win32Api ranges_of(std::uint64_t size, const std::vector<FILE_ALLOCATED_RANGE_BU
         return file_handle;
     };
     api.close_handle = [](HANDLE) -> BOOL { return TRUE; };
-    api.device_io_control = [&ranges](HANDLE, DWORD, LPVOID, DWORD, LPVOID out, DWORD, LPDWORD returned,
-                                      LPOVERLAPPED) -> BOOL {
+    api.device_io_control = [ranges = std::move(ranges)](HANDLE, DWORD, LPVOID, DWORD, LPVOID out, DWORD,
+                                                         LPDWORD returned, LPOVERLAPPED) -> BOOL {
         auto* buffer = static_cast<FILE_ALLOCATED_RANGE_BUFFER*>(out);
         for (std::size_t index = 0; index < ranges.size(); ++index) {
             buffer[index] = ranges[index];
