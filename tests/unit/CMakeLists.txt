@@ -4,10 +4,12 @@ wsldisk_add_test_suite(wsldisk_unit_tests unit
     version_test.cpp
     fakes/fake_registry_test.cpp
     model/size_test.cpp
+    model/wsl_output_test.cpp
     platform/filesystem_test.cpp
     platform/registry_test.cpp
     platform/virtual_disk_test.cpp
     platform/win32_error_test.cpp
+    platform/wsl_host_test.cpp
     cli/app_test.cpp)
 
 target_link_libraries(wsldisk_unit_tests PRIVATE wsldisk::lib wsldisk::cli)

@@ -69,6 +69,24 @@ struct Win32Api {
                         LPOVERLAPPED overlapped, PHANDLE handle)>
         create_virtual_disk;
 
+    // Process creation and pipe reads, for the wsl.exe wrapper.
+    std::function<BOOL(LPCWSTR application_name, LPWSTR command_line,
+                       LPSECURITY_ATTRIBUTES process_attributes, LPSECURITY_ATTRIBUTES thread_attributes,
+                       BOOL inherit_handles, DWORD creation_flags, LPVOID environment,
+                       LPCWSTR current_directory, LPSTARTUPINFOW startup_info,
+                       LPPROCESS_INFORMATION process_information)>
+        create_process;
+    std::function<BOOL(PHANDLE read_pipe, PHANDLE write_pipe, LPSECURITY_ATTRIBUTES attributes, DWORD size)>
+        create_pipe;
+    std::function<BOOL(HANDLE object, DWORD mask, DWORD flags)> set_handle_information;
+    std::function<BOOL(HANDLE file, LPVOID buffer, DWORD to_read, LPDWORD read, LPOVERLAPPED overlapped)>
+        read_file;
+    std::function<BOOL(HANDLE pipe, LPVOID buffer, DWORD buffer_size, LPDWORD read, LPDWORD total_available,
+                       LPDWORD left_this_message)>
+        peek_named_pipe;
+    std::function<BOOL(HANDLE process, LPDWORD exit_code)> get_exit_code_process;
+    std::function<BOOL(HANDLE process, UINT exit_code)> terminate_process;
+
     std::function<BOOL(HANDLE handle)> close_handle;
     std::function<HANDLE(LPSECURITY_ATTRIBUTES attributes, BOOL manual_reset, BOOL initial_state,
                          LPCWSTR name)>

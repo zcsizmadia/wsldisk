@@ -32,7 +32,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        target: [fuzz_parse_size]
+        target: [fuzz_parse_size, fuzz_parse_wsl_list]
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
 
@@ -70,7 +70,7 @@ jobs:
           $exe = "build/x64-fuzz/tests/fuzz/Release/${{ matrix.target }}.exe"
           # The accumulated corpus comes first: libFuzzer writes new inputs there
           # and treats the later directories as read-only seeds.
-          & $exe $corpus tests/fuzz/corpus `
+          & $exe $corpus tests/fuzz/corpus/${{ matrix.target }} `
               -max_total_time=$seconds -print_final_stats=1 -timeout=25 `
               -artifact_prefix=artifacts/ 2>&1 | Tee-Object -FilePath fuzz.log
           $code = $LASTEXITCODE

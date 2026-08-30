@@ -37,10 +37,14 @@ function(wsldisk_add_fuzzer name)
     target_link_options(${name} PRIVATE /IGNORE:4217)
     set_target_properties(${name} PROPERTIES FOLDER "tests/fuzz")
 
-    set(corpus "${CMAKE_CURRENT_SOURCE_DIR}/corpus")
+    # One corpus per target: an input that exercises the size parser tells the
+    # list decoder nothing, and a shared directory makes each target replay the
+    # other's inputs for no coverage.
+    set(corpus "${CMAKE_CURRENT_SOURCE_DIR}/corpus/${name}")
     add_test(NAME "fuzz.${name}.corpus"
              COMMAND ${name} "${corpus}" -runs=0)
     set_tests_properties("fuzz.${name}.corpus" PROPERTIES LABELS fuzz)
 endfunction()
 
 wsldisk_add_fuzzer(fuzz_parse_size fuzz_parse_size.cpp)
+wsldisk_add_fuzzer(fuzz_parse_wsl_list fuzz_parse_wsl_list.cpp)
