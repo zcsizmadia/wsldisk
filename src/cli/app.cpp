@@ -3,6 +3,7 @@
 #include <CLI/CLI.hpp>
 
 #include <exception>
+#include <iostream>
 #include <ostream>
 #include <span>
 #include <string>
@@ -13,6 +14,7 @@
 #include "list_command.h"
 #include "logger.h"
 #include "options.h"
+#include "orphans_command.h"
 #include "platform/clock.h"
 #include "platform/filesystem.h"
 #include "platform/registry.h"
@@ -49,6 +51,9 @@ int run(std::span<const std::string> args, std::ostream& out, std::ostream& err)
     InfoOptions info_options;
     add_info_command(app, options, info_options);
 
+    OrphansOptions orphans_options;
+    add_orphans_command(app, options, orphans_options);
+
     // CLI11 parses in reverse order, so hand it a reversed copy of argv-style input.
     std::vector<std::string> reversed(args.rbegin(), args.rend());
 
@@ -67,11 +72,11 @@ int run(std::span<const std::string> args, std::ostream& out, std::ostream& err)
 
     StreamLogger logger{err, options.verbose, options.log_file};
 
-    if (app.got_subcommand("list") || app.got_subcommand("info")) {
+    if (app.got_subcommand("list") || app.got_subcommand("info") || app.got_subcommand("orphans")) {
         // The real implementations. Every one is an interface, which is what
         // lets the unit tests drive the same code with fakes.
-        const platform::Win32Registry registry;
-        const platform::Win32FileSystem filesystem;
+        platform::Win32Registry registry;
+        platform::Win32FileSystem filesystem;
         const platform::Win32VirtualDisk disks;
         const platform::WslExeHost host;
         const Services services{
@@ -79,6 +84,13 @@ int run(std::span<const std::string> args, std::ostream& out, std::ostream& err)
 
         if (app.got_subcommand("info")) {
             return run_info(services, info_options, options, logger, out, err);
+        }
+        if (app.got_subcommand("orphans")) {
+            // The prompt reads the real console. Everything else about the
+            // command is driven from interfaces, so the tests answer it
+            // themselves rather than typing.
+            return run_orphans(services, orphans_options, options, logger, console_confirm(std::cin, out),
+                               out, err);
         }
         return run_list(services, list_options, options, logger, out, err);
     }

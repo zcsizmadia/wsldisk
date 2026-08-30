@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <map>
 #include <optional>
+#include <set>
 #include <string>
 #include <vector>
 
@@ -30,6 +31,9 @@ public:
           variables_(std::move(other.variables_)),
           failure_(std::move(other.failure_)),
           remove_failure_(std::move(other.remove_failure_)),
+          size_on_disk_failure_(std::move(other.size_on_disk_failure_)),
+          directory_failures_(std::move(other.directory_failures_)),
+          locked_(std::move(other.locked_)),
           removed_(std::move(other.removed_)) {}
 
     struct File {
@@ -66,6 +70,19 @@ public:
 
     void fail_remove(Error error) { remove_failure_ = std::move(error); }
 
+    /// Makes the size lookup fail while the directory listing still works --
+    /// a file deleted between the scan and the measurement.
+    void fail_size_on_disk(Error error) { size_on_disk_failure_ = std::move(error); }
+
+    /// Makes listing one directory fail, leaving every other listing working.
+    ///
+    /// A scan reads several directories and reports the ones it could not,
+    /// rather than giving up. A fake that fails every listing can only ever
+    /// exercise the give-up path.
+    void fail_directory(const std::filesystem::path& directory, Error error) {
+        directory_failures_.insert_or_assign(directory.wstring(), std::move(error));
+    }
+
     [[nodiscard]] const std::vector<std::wstring>& removed() const noexcept { return removed_; }
 
     [[nodiscard]] bool exists(const std::filesystem::path& path) const override {
@@ -81,6 +98,9 @@ public:
     }
 
     [[nodiscard]] Result<std::uint64_t> file_size_on_disk(const std::filesystem::path& path) const override {
+        if (size_on_disk_failure_) {
+            return std::unexpected(*size_on_disk_failure_);
+        }
         const auto file = find(path);
         if (!file.has_value()) {
             return std::unexpected(file.error());
@@ -112,6 +132,10 @@ public:
         if (failure_) {
             return std::unexpected(*failure_);
         }
+        if (const auto named = directory_failures_.find(directory.wstring());
+            named != directory_failures_.end()) {
+            return std::unexpected(named->second);
+        }
         std::vector<DirectoryEntry> entries;
         for (const auto& [path, file] : files_) {
             const std::filesystem::path candidate{path};
@@ -141,6 +165,17 @@ public:
             return std::vector<AllocatedRange>{};
         }
         return std::vector<AllocatedRange>{AllocatedRange{.offset = 0, .length = (*file)->size}};
+    }
+
+    /// Marks a file as held open by something else.
+    void lock_file(const std::filesystem::path& path) { locked_.insert(path.wstring()); }
+
+    [[nodiscard]] Result<bool> is_locked(const std::filesystem::path& path) const override {
+        const auto file = find(path);
+        if (!file.has_value()) {
+            return std::unexpected(file.error());
+        }
+        return locked_.contains(path.wstring());
     }
 
     [[nodiscard]] Status remove(const std::filesystem::path& path) override {
@@ -211,6 +246,9 @@ private:
     std::map<std::wstring, std::wstring> variables_;
     std::optional<Error> failure_;
     std::optional<Error> remove_failure_;
+    std::optional<Error> size_on_disk_failure_;
+    std::map<std::wstring, Error> directory_failures_;
+    std::set<std::wstring> locked_;
     std::vector<std::wstring> removed_;
 };
 

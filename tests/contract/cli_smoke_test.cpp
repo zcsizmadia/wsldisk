@@ -117,3 +117,26 @@ TEST_CASE("info requires a distribution name", "[contract][cli]") {
 
     CHECK(result.exit_code == 2);
 }
+
+TEST_CASE("the executable reaches the orphans command", "[contract][cli]") {
+    // The `orphans` third of the subcommand dispatch. Deliberately a --relink
+    // of a name that cannot exist rather than a scan: a scan prints the real
+    // paths on this machine, and a test has no business putting a developer's
+    // home directory into CI output.
+    const ProcessOutput result =
+        run_process(quoted_exe() + " orphans --relink wsldisk-no-such-distro --to " + quoted_exe());
+
+    INFO(result.output);
+    // 10 when the registry could be read and the name is not there, 3 when
+    // there is no WSL on this machine at all.
+    CHECK((result.exit_code == 10 || result.exit_code == 3));
+    CHECK(result.output.find("error:") != std::string::npos);
+}
+
+TEST_CASE("orphans --relink needs somewhere to point", "[contract][cli]") {
+    // `--to` is declared as a requirement of `--relink`, so half an instruction
+    // is a usage error rather than a partial rewrite of the registry.
+    const ProcessOutput result = run_process(quoted_exe() + " orphans --relink Ubuntu");
+
+    CHECK(result.exit_code == 2);
+}

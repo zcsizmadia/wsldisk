@@ -5,9 +5,11 @@ wsldisk_add_test_suite(wsldisk_unit_tests unit
     fakes/fake_registry_test.cpp
     model/disk_info_test.cpp
     model/distro_test.cpp
+    model/orphans_test.cpp
     model/size_test.cpp
     model/text_test.cpp
     model/wsl_output_test.cpp
+    ops/relink_test.cpp
     ops/runner_test.cpp
     platform/clock_test.cpp
     platform/filesystem_scan_test.cpp
@@ -19,7 +21,9 @@ wsldisk_add_test_suite(wsldisk_unit_tests unit
     cli/app_test.cpp
     cli/info_command_test.cpp
     cli/list_command_test.cpp
+    cli/orphans_command_test.cpp
     cli/plumbing_test.cpp
+    cli/progress_test.cpp
     cli/render_test.cpp)
 
 target_link_libraries(wsldisk_unit_tests PRIVATE wsldisk::lib wsldisk::cli)

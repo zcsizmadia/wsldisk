@@ -6,6 +6,7 @@
 #include <winioctl.h>
 
 #include <catch2/catch_test_macros.hpp>
+#include <catch2/generators/catch_generators.hpp>
 
 #include <algorithm>
 #include <cstddef>
@@ -449,4 +450,57 @@ TEST_CASE("allocated_ranges stops once the query reaches the end of the file", "
     REQUIRE(ranges.has_value());
     CHECK(ranges->size() == 2);
     CHECK(calls == 2);
+}
+
+TEST_CASE("is_locked says no when the file opens exclusively", "[platform][fs]") {
+    DWORD requested_sharing = 0xFFFFFFFF;
+    Win32Api api;
+    api.create_file = [&requested_sharing](LPCWSTR, DWORD, DWORD sharing, LPSECURITY_ATTRIBUTES, DWORD, DWORD,
+                                           HANDLE) -> HANDLE {
+        requested_sharing = sharing;
+        return file_handle;
+    };
+    api.close_handle = [](HANDLE) -> BOOL { return TRUE; };
+    const ScopedWin32Api scoped{api};
+
+    const Win32FileSystem fs;
+    const auto locked = fs.is_locked(R"(C:\wsl\free.vhdx)");
+
+    REQUIRE(locked.has_value());
+    CHECK_FALSE(*locked);
+    // Sharing zero is the whole test: opening with FILE_SHARE_READ would
+    // succeed against a file another process has open for writing.
+    CHECK(requested_sharing == 0U);
+}
+
+TEST_CASE("is_locked says yes on a sharing violation", "[platform][fs]") {
+    const DWORD status = GENERATE(DWORD{ERROR_SHARING_VIOLATION}, DWORD{ERROR_LOCK_VIOLATION});
+
+    Win32Api api;
+    api.create_file = [](LPCWSTR, DWORD, DWORD, LPSECURITY_ATTRIBUTES, DWORD, DWORD, HANDLE) -> HANDLE {
+        return INVALID_HANDLE_VALUE;
+    };
+    api.get_last_error = [status]() -> DWORD { return status; };
+    const ScopedWin32Api scoped{api};
+
+    const Win32FileSystem fs;
+    const auto locked = fs.is_locked(R"(C:\wsl\docker_data.vhdx)");
+
+    REQUIRE(locked.has_value());
+    CHECK(*locked);
+}
+
+TEST_CASE("is_locked reports a failure that is not an answer", "[platform][fs]") {
+    Win32Api api;
+    api.create_file = [](LPCWSTR, DWORD, DWORD, LPSECURITY_ATTRIBUTES, DWORD, DWORD, HANDLE) -> HANDLE {
+        return INVALID_HANDLE_VALUE;
+    };
+    api.get_last_error = []() -> DWORD { return ERROR_FILE_NOT_FOUND; };
+    const ScopedWin32Api scoped{api};
+
+    const Win32FileSystem fs;
+    const auto locked = fs.is_locked(R"(C:\wsl\gone.vhdx)");
+
+    REQUIRE_FALSE(locked.has_value());
+    CHECK(locked.error().message.find("is in use") != std::string::npos);
 }

@@ -243,6 +243,25 @@ Result<std::vector<AllocatedRange>> Win32FileSystem::allocated_ranges(
     return ranges;
 }
 
+Result<bool> Win32FileSystem::is_locked(const std::filesystem::path& path) const {
+    // Asking for exclusive access is the only reliable way to find out: a file
+    // another process has open for writing refuses to open with no sharing.
+    const ScopedHandle file{win32().create_file(path.c_str(), GENERIC_READ, 0, nullptr, OPEN_EXISTING,
+                                                FILE_ATTRIBUTE_NORMAL, nullptr)};
+    if (file.get() != INVALID_HANDLE_VALUE) {
+        return false;
+    }
+
+    const DWORD status = win32().get_last_error();
+    if (status == ERROR_SHARING_VIOLATION || status == ERROR_LOCK_VIOLATION) {
+        return true;
+    }
+    // Anything else -- gone, denied, on a drive that went away -- is not an
+    // answer to the question that was asked.
+    return std::unexpected(
+        error_from_win32(status, std::format("check whether {} is in use", path.string())));
+}
+
 Status Win32FileSystem::remove(const std::filesystem::path& path) {
     if (win32().delete_file(path.c_str()) == FALSE) {
         return std::unexpected(

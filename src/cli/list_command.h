@@ -19,8 +19,13 @@ class ILogger;
 
 /// Everything `list` needs, so the command can be driven entirely from fakes.
 struct Services {
-    const IRegistry* registry = nullptr;
-    const IFileSystem* filesystem = nullptr;
+    /// The registry and the filesystem are not const: `orphans --relink`
+    /// writes a registry value and `orphans --delete` removes a file.
+    /// Everything read-only simply does not call those methods, which is a
+    /// clearer contract than a const pointer and a const_cast at the two places
+    /// that need to write.
+    IRegistry* registry = nullptr;
+    IFileSystem* filesystem = nullptr;
     const IVirtualDisk* disks = nullptr;
     const IWslHost* host = nullptr;
 };

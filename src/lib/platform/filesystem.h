@@ -19,6 +19,7 @@ public:
         const std::filesystem::path& directory, std::wstring_view pattern) const override;
     [[nodiscard]] Result<std::vector<AllocatedRange>> allocated_ranges(
         const std::filesystem::path& path) const override;
+    [[nodiscard]] Result<bool> is_locked(const std::filesystem::path& path) const override;
     [[nodiscard]] Status remove(const std::filesystem::path& path) override;
     [[nodiscard]] Result<std::filesystem::path> expand_environment(
         const std::filesystem::path& path) const override;

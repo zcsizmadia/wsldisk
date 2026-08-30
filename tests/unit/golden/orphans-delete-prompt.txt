@@ -1,0 +1,8 @@
+SIZE ON DISK  PATH
+68.0 GiB      C:\Users\example\AppData\Local\Docker\wsl\disk\docker_data.vhdx
+
+68.0 GiB would be freed
+
+not every disk here is unused: software other than WSL keeps virtual disks
+that no distribution claims. Check what each one is before deleting it.
+nothing was deleted

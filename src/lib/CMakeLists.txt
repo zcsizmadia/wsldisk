@@ -28,6 +28,8 @@ add_library(wsldisk_lib STATIC
     model/disk_info.h
     model/distro.cpp
     model/distro.h
+    model/orphans.cpp
+    model/orphans.h
     model/size.cpp
     model/size.h
     model/text.cpp
@@ -37,6 +39,8 @@ add_library(wsldisk_lib STATIC
 
     ops/operation.cpp
     ops/operation.h
+    ops/relink.cpp
+    ops/relink.h
     ops/runner.cpp
     ops/runner.h
 
