@@ -1,6 +1,7 @@
 #include "platform/wsl_host.h"
 
 #include <catch2/catch_test_macros.hpp>
+#include <catch2/generators/catch_generators.hpp>
 
 #include <algorithm>
 #include <chrono>
@@ -24,6 +25,8 @@ namespace {
 
 /// Handle values the fake table hands out. Any non-null value will do; distinct
 /// ones make a failed assertion say which handle was involved.
+const auto stdin_read = reinterpret_cast<HANDLE>(0x08);
+const auto stdin_write = reinterpret_cast<HANDLE>(0x09);
 const auto stdout_read = reinterpret_cast<HANDLE>(0x10);
 const auto stdout_write = reinterpret_cast<HANDLE>(0x11);
 const auto stderr_read = reinterpret_cast<HANDLE>(0x20);
@@ -41,7 +44,7 @@ struct FakeProcess {
     int waits_before_exit = 0;
     /// The command line CreateProcess was handed, for asserting arguments.
     std::wstring command_line;
-    /// Counts pipe creations so the first is stdout and the second stderr.
+    /// Counts pipe creations so they map to stdin, stdout and stderr in order.
     int pipes_created = 0;
     bool terminated = false;
 };
@@ -51,13 +54,20 @@ Win32Api table_for(FakeProcess& process) {
     Win32Api api;
 
     api.create_pipe = [&process](PHANDLE read, PHANDLE write, LPSECURITY_ATTRIBUTES, DWORD) -> BOOL {
-        // First call is stdout, second is stderr, matching run_wsl's order.
-        if (process.pipes_created++ == 0) {
-            *read = stdout_read;
-            *write = stdout_write;
-        } else {
-            *read = stderr_read;
-            *write = stderr_write;
+        // stdin, then stdout, then stderr -- run_wsl's order.
+        switch (process.pipes_created++) {
+            case 0:
+                *read = stdin_read;
+                *write = stdin_write;
+                break;
+            case 1:
+                *read = stdout_read;
+                *write = stdout_write;
+                break;
+            default:
+                *read = stderr_read;
+                *write = stderr_write;
+                break;
         }
         return TRUE;
     };
@@ -211,12 +221,18 @@ TEST_CASE("run_wsl reports a pipe that cannot be created", "[platform][wsl]") {
     CHECK(result.error().message.find("pipe") != std::string::npos);
 }
 
-TEST_CASE("run_wsl reports the second pipe failing", "[platform][wsl]") {
+TEST_CASE("run_wsl reports whichever pipe fails", "[platform][wsl]") {
+    // Three pipes are created -- stdin, stdout, stderr -- and each is a separate
+    // failure path. A test that only fails the first leaves the other two
+    // untested, and they are the ones that leak the pipes already created.
+    const int failing = GENERATE(0, 1, 2);
+    CAPTURE(failing);
+
     FakeProcess process;
     Win32Api api = table_for(process);
     int calls = 0;
-    api.create_pipe = [&calls](PHANDLE read, PHANDLE write, LPSECURITY_ATTRIBUTES, DWORD) -> BOOL {
-        if (calls++ == 0) {
+    api.create_pipe = [&calls, failing](PHANDLE read, PHANDLE write, LPSECURITY_ATTRIBUTES, DWORD) -> BOOL {
+        if (calls++ != failing) {
             *read = stdout_read;
             *write = stdout_write;
             return TRUE;
@@ -225,7 +241,10 @@ TEST_CASE("run_wsl reports the second pipe failing", "[platform][wsl]") {
     };
     const ScopedWin32Api scoped{api};
 
-    CHECK_FALSE(run_wsl({L"--status"}, 5s).has_value());
+    const auto result = run_wsl({L"--status"}, 5s);
+
+    REQUIRE_FALSE(result.has_value());
+    CHECK(result.error().message.find("pipe") != std::string::npos);
 }
 
 TEST_CASE("run_wsl reports a handle that cannot be made non-inheritable", "[platform][wsl]") {

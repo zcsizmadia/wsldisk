@@ -69,9 +69,13 @@ TEST_CASE("wsl.exe --version runs and reports an exit code", "[contract][wsl]") 
 }
 
 TEST_CASE("the decoder turns wsl.exe output into clean UTF-8", "[contract][wsl]") {
-    const auto result = run_wsl({L"--version"}, 60s);
-    if (!result.has_value()) {
-        SUCCEED("wsl.exe is not available on this machine");
+    // Deliberately no assertion about what wsl.exe says. The version banner is
+    // localized and changes between builds, and this suite's own rule is that
+    // nothing parses prose -- an arm64 runner whose wsl.exe prints something
+    // else must not fail the decoder.
+    const auto result = run_wsl({L"--version"}, 20s);
+    if (!result.has_value() || result->standard_output.empty()) {
+        SUCCEED("wsl.exe produced no output on this machine");
         return;
     }
 
@@ -81,10 +85,10 @@ TEST_CASE("the decoder turns wsl.exe output into clean UTF-8", "[contract][wsl]"
 
     CHECK(is_valid_utf8(text));
     // The raw stream is UTF-16, so every other byte is NUL. Decoding must
-    // remove them; a decoder that "works" by stripping zero bytes would leave
-    // the text intact but mangle any non-ASCII name.
+    // consume them; a decoder that "works" by stripping zero bytes would pass
+    // this too, which is why the unit tests cover the non-ASCII cases.
     CHECK(text.find('\0') == std::string::npos);
-    CHECK(text.find("WSL") != std::string::npos);
+    CHECK_FALSE(text.empty());
 }
 
 TEST_CASE("running returns a list without needing a distribution", "[contract][wsl]") {

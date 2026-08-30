@@ -30,7 +30,11 @@ struct Pipe {
     ScopedHandle write;
 };
 
-[[nodiscard]] Status make_pipe(Pipe& pipe) {
+/// Creates a pipe and makes only the child's end inheritable.
+///
+/// The parent's end must not be inheritable, or it stays open inside the child
+/// and whoever is waiting for end-of-file waits forever.
+[[nodiscard]] Status make_pipe(Pipe& pipe, bool child_reads) {
     SECURITY_ATTRIBUTES attributes{};
     attributes.nLength = sizeof(attributes);
     attributes.bInheritHandle = TRUE;
@@ -39,9 +43,8 @@ struct Pipe {
         return std::unexpected(
             error_from_win32(win32().get_last_error(), "create a pipe for the wsl.exe output"));
     }
-    // Only the write end is the child's. Leaving the read end inheritable keeps
-    // it open inside the child, and the parent then never sees end-of-file.
-    if (win32().set_handle_information(pipe.read.get(), HANDLE_FLAG_INHERIT, 0) == FALSE) {
+    HANDLE parent_end = child_reads ? pipe.write.get() : pipe.read.get();
+    if (win32().set_handle_information(parent_end, HANDLE_FLAG_INHERIT, 0) == FALSE) {
         return std::unexpected(
             error_from_win32(win32().get_last_error(), "configure the wsl.exe output pipe"));
     }
@@ -112,21 +115,30 @@ std::wstring build_command_line(const std::vector<std::wstring>& arguments) {
 }
 
 Result<WslRawResult> run_wsl(const std::vector<std::wstring>& arguments, std::chrono::milliseconds timeout) {
+    // Standard input is a pipe whose write end is closed the moment the child is
+    // running, so anything that reads stdin sees end-of-file immediately. The
+    // alternative -- a null handle with STARTF_USESTDHANDLES -- hands the child
+    // an invalid stdin, and a child that reads it can block until the timeout
+    // fires instead of answering.
+    Pipe input;
     Pipe output;
     Pipe errors;
-    if (const Status ready = make_pipe(output); !ready.has_value()) {
+    if (const Status ready = make_pipe(input, true); !ready.has_value()) {
         return std::unexpected(ready.error());
     }
-    if (const Status ready = make_pipe(errors); !ready.has_value()) {
+    if (const Status ready = make_pipe(output, false); !ready.has_value()) {
+        return std::unexpected(ready.error());
+    }
+    if (const Status ready = make_pipe(errors, false); !ready.has_value()) {
         return std::unexpected(ready.error());
     }
 
     STARTUPINFOW startup{};
     startup.cb = sizeof(startup);
     startup.dwFlags = STARTF_USESTDHANDLES;
+    startup.hStdInput = input.read.get();
     startup.hStdOutput = output.write.get();
     startup.hStdError = errors.write.get();
-    startup.hStdInput = nullptr;
 
     // CreateProcessW may write to the command line buffer, so it cannot be the
     // string's own storage in a const context.
@@ -146,7 +158,9 @@ Result<WslRawResult> run_wsl(const std::vector<std::wstring>& arguments, std::ch
     const ScopedHandle thread_handle{process.hThread};
 
     // The parent's copies of the write ends must go, or the read ends never
-    // report end-of-file even after the child exits.
+    // report end-of-file even after the child exits. Closing the stdin pipe's
+    // write end is what gives the child end-of-file on stdin.
+    input.write.close();
     output.write.close();
     errors.write.close();
 

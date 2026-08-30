@@ -14,9 +14,16 @@ function(wsldisk_add_test_suite name label)
     set(discover_properties LABELS ${label})
 
     if(WSLDISK_ENABLE_COVERAGE)
-        # One profile per process, so parallel ctest runs do not clobber each other.
+        # %m, not %p. ctest runs every Catch2 case as its own process, so a suite
+        # is a couple of hundred short-lived processes; Windows recycles PIDs
+        # aggressively enough that two of them collide, and with %p the second
+        # truncates the first's profile. That loses whichever branches the first
+        # process was the only one to reach, which shows up as a coverage gate
+        # that fails on unrelated lines and passes again on a re-run. %m keys the
+        # file on the binary's module signature instead and merges concurrent
+        # writers, so the count of files stays fixed and nothing is dropped.
         list(APPEND discover_properties
-             ENVIRONMENT "LLVM_PROFILE_FILE=${CMAKE_BINARY_DIR}/profraw/${name}-%p.profraw")
+             ENVIRONMENT "LLVM_PROFILE_FILE=${CMAKE_BINARY_DIR}/profraw/${name}-%m.profraw")
     endif()
 
     catch_discover_tests(${name}
