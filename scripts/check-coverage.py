@@ -143,7 +143,9 @@ class FileCoverage:
         return self.percentage(self.functions_hit, self.functions_found)
 
 
-def parse_lcov(text: str, exclusions_for=read_exclusions) -> tuple[list[FileCoverage], list[Exclusion]]:
+def parse_lcov(
+    text: str, exclusions_for=read_exclusions
+) -> tuple[list[FileCoverage], list[Exclusion]]:
     """Parses the subset of lcov that llvm-cov emits, applying LCOV_EXCL markers."""
     files: list[FileCoverage] = []
     applied: list[Exclusion] = []
