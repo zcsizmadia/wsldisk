@@ -124,6 +124,9 @@ DiskInfo measure(const Distro& distro, const IFileSystem& filesystem, const IVir
     if (const auto handle = disks.open(distro.vhdx_path); handle.has_value()) {
         if (const auto disk = (*handle)->information(); disk.has_value()) {
             info.virtual_size = disk->virtual_size;
+            info.block_size = disk->block_size;
+            info.sector_size = disk->sector_size;
+            info.parent_path = disk->parent_path;
         } else {
             info.notes.push_back(disk.error().to_string());
         }

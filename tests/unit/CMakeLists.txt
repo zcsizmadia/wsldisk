@@ -17,6 +17,7 @@ wsldisk_add_test_suite(wsldisk_unit_tests unit
     platform/win32_error_test.cpp
     platform/wsl_host_test.cpp
     cli/app_test.cpp
+    cli/info_command_test.cpp
     cli/list_command_test.cpp
     cli/plumbing_test.cpp
     cli/render_test.cpp)

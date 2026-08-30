@@ -99,3 +99,21 @@ TEST_CASE("an unknown subcommand is a usage error", "[contract][cli]") {
     CHECK(result.exit_code == 2);
     CHECK(result.output.find("error:") != std::string::npos);
 }
+
+TEST_CASE("the executable describes one distribution", "[contract][cli]") {
+    // The `info` half of the subcommand dispatch, which the unit tests reach
+    // through run_info rather than through main.
+    const ProcessOutput result = run_process(quoted_exe() + " info wsldisk-no-such-distro");
+
+    INFO(result.output);
+    // 10 when the registry could be read and the name is not there, 3 when
+    // there is no WSL on this machine at all. Both are answers; a crash is not.
+    CHECK((result.exit_code == 10 || result.exit_code == 3));
+    CHECK(result.output.find("error:") != std::string::npos);
+}
+
+TEST_CASE("info requires a distribution name", "[contract][cli]") {
+    const ProcessOutput result = run_process(quoted_exe() + " info");
+
+    CHECK(result.exit_code == 2);
+}

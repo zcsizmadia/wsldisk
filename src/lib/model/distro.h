@@ -33,6 +33,11 @@ struct Distro {
     /// a normalised copy and reconstructing the prefix later would be guesswork.
     std::wstring base_path;
 
+    /// `VhdFileName` exactly as stored, and empty when the value is absent --
+    /// which is the whole legacy MSIX layout. `info` shows the difference,
+    /// because "absent" and "set to ext4.vhdx" are different registry states.
+    std::wstring vhd_file_name;
+
     /// Where the disk actually is: `base_path` with any extended-length prefix
     /// stripped, joined with `VhdFileName` or `ext4.vhdx`.
     std::filesystem::path vhdx_path;
@@ -56,6 +61,11 @@ struct Distro {
     std::string os_version;
 
     [[nodiscard]] bool is_wsl2() const noexcept { return version == 2; }
+
+    /// Whether this is the distribution the user named. Case-insensitive,
+    /// because `wsl.exe` matches names that way and a tool beside it that did
+    /// not would be its own kind of surprise.
+    [[nodiscard]] bool find_matches(std::string_view wanted) const noexcept;
 };
 
 /// What enumeration found, plus what it had to skip.
@@ -74,6 +84,9 @@ struct DistroList {
     /// Case-insensitive, because `wsl.exe` matches names that way.
     [[nodiscard]] const Distro* find(std::string_view name) const noexcept;
 };
+
+/// The registry key one distribution lives under, for `info` to show.
+[[nodiscard]] std::wstring registry_key_for(const Distro& distro);
 
 /// Where WSL records its distributions, relative to `HKEY_CURRENT_USER`.
 ///
