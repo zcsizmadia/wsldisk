@@ -28,10 +28,14 @@ int silence_crash_dialogs() {
     _set_abort_behavior(0, _WRITE_ABORT_MSG | _CALL_REPORTFAULT);
 
     // Debug CRT assertions and /RTC failures to stderr instead of a dialog.
+    // These are no-op macros in a release build, which leaves `report` unused
+    // and /WX then rejects the loop, so the whole block is debug-only.
+#ifdef _DEBUG
     for (const int report : {_CRT_WARN, _CRT_ERROR, _CRT_ASSERT}) {
         _CrtSetReportMode(report, _CRTDBG_MODE_FILE);
         _CrtSetReportFile(report, _CRTDBG_FILE_STDERR);
     }
+#endif
     return 0;
 }
 
