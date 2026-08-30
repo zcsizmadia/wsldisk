@@ -38,21 +38,38 @@ a throwaway distribution imported from the pinned Alpine 3.22.4 rootfs and
 unregistered afterwards; no real distribution was read, written or compacted.
 Usernames are redacted as `<user>`.
 
-### Compaction (issue #1) — answered, and the API shape in the plan is wrong
+### Compaction (issue #1) — answered
 
 **Unattached compaction works, needs no administrator rights, and reclaims
-everything `fstrim` freed — but only through the V2 open parameters.**
+everything `fstrim` freed.**
 
 Method: import Alpine, `dd` 1 GiB of `/dev/urandom` to `/big.bin`, delete it,
 `fstrim /`, `wsl --shutdown`, then `OpenVirtualDisk` + `CompactVirtualDisk`
-from an **unelevated** process, trying four parameter shapes against the same file.
+from an **unelevated** process, trying several parameter shapes against the same file.
+
+> **Corrected 2026-08-30.** The access-mask rows below originally reported that
+> `VIRTUAL_DISK_ACCESS_METAOPS` opens but fails to compact. That was wrong: the
+> spike's P/Invoke declared `ACCESS_METAOPS = 0x00020000`, which is
+> `VIRTUAL_DISK_ACCESS_ATTACH_RW`, not `METAOPS` (`0x00200000`). Attaching
+> read-write is what needs elevation, so the spike measured an attach denial and
+> attributed it to `METAOPS`. Re-measured with the correct constant while
+> building the #21 contract test; the table now reflects the corrected run.
+> The reclaim figures below were always measured through V2 + `ACCESS_NONE` and
+> are unaffected.
 
 | `OpenVirtualDisk` shape | Access mask | Result |
 |---|---|---|
-| `OPEN_VIRTUAL_DISK_VERSION_1` (`RWDepth = 1`) | `METAOPS` | opens, then `CompactVirtualDisk` fails with **5 (ERROR_ACCESS_DENIED)** |
-| `NULL` parameters | `METAOPS` | opens, then compact fails with **5** |
+| `OPEN_VIRTUAL_DISK_VERSION_1` (`RWDepth = 1`) | `METAOPS` (`0x00200000`) | opens and compacts, rc = 0 |
+| `OPEN_VIRTUAL_DISK_VERSION_1` | `ATTACH_RW` (`0x00020000`) | opens, then compact fails with **5 (ERROR_ACCESS_DENIED)** |
+| `OPEN_VIRTUAL_DISK_VERSION_1` | `NONE` | opens, then compact fails with **5** |
 | **`OPEN_VIRTUAL_DISK_VERSION_2`** | **`VIRTUAL_DISK_ACCESS_NONE`** | **opens and compacts, rc = 0** |
 | `OPEN_VIRTUAL_DISK_VERSION_2` | `METAOPS` | fails to open with 87 (`ERROR_INVALID_PARAMETER`) |
+| `OPEN_VIRTUAL_DISK_VERSION_2` | `ATTACH_RW` | fails to open with 87 |
+
+The rule the corrected run shows is that the V2 parameters accept
+`VIRTUAL_DISK_ACCESS_NONE` and nothing else — any non-zero mask is rejected at
+open with 87 — while V1 derives its rights from the mask and so needs `METAOPS`
+to compact. Both `V1 + METAOPS` and `V2 + NONE` compact unelevated.
 
 Sizes for the successful run:
 
@@ -68,13 +85,16 @@ Elapsed: **0.2 s**. The distribution booted normally afterwards.
 
 **Consequences:**
 
-1. **PLAN.md §4.2 step 4 is wrong as written.** It specifies
-   `OpenVirtualDisk` with `VIRTUAL_DISK_ACCESS_METAOPS`; that combination opens
-   the handle successfully and then fails the compaction with access denied, which
-   is a confusing way to fail. The working combination is
-   `OPEN_VIRTUAL_DISK_VERSION_2` with `VIRTUAL_DISK_ACCESS_NONE`, exactly as
-   docs/ARCHITECTURE.md suggested — that guidance is now a requirement, not a
-   preference. `METAOPS` must not be combined with V2 parameters at all.
+1. **PLAN.md §4.2 step 4 is workable, but `OPEN_VIRTUAL_DISK_VERSION_2` with
+   `VIRTUAL_DISK_ACCESS_NONE` is the shape to use.** The plan's original
+   `VIRTUAL_DISK_ACCESS_METAOPS` does compact unelevated, so it was not the bug
+   this section first claimed. The V2 shape is preferred because it has exactly
+   one valid spelling: the mask must be `VIRTUAL_DISK_ACCESS_NONE`, and every
+   other value fails loudly at open with 87. The V1 shape has two spellings that
+   both open and only one that compacts — `NONE` opens and then fails at the
+   compaction with `ERROR_ACCESS_DENIED` — so a mistake there surfaces late,
+   after the preflight has already told the user their disk is about to shrink.
+   `METAOPS` must still not be combined with V2 parameters.
 2. **The unelevated path is the default, not a fallback.** `fstrim` followed by
    unattached compaction reclaimed 100% of the freed space without administrator
    rights. The attached read-only "full" mode is not needed for this case and can

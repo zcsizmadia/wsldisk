@@ -7,6 +7,10 @@
 #     are the documented process exit codes.
 #   misc-include-cleaner -- too noisy against <windows.h>, which pulls in
 #     hundreds of transitive headers.
+#   cppcoreguidelines-pro-type-union-access -- the Virtual Disk Service passes
+#     every parameter and result through a versioned union (OPEN_VIRTUAL_DISK_
+#     PARAMETERS, GET_VIRTUAL_DISK_INFO, ...). Reading those members is the API,
+#     not a design choice, and there is no variant to reach for.
 Checks: >
   -*,
   bugprone-*,
@@ -24,6 +28,7 @@ Checks: >
   -cppcoreguidelines-avoid-magic-numbers,
   -cppcoreguidelines-pro-bounds-array-to-pointer-decay,
   -cppcoreguidelines-pro-type-reinterpret-cast,
+  -cppcoreguidelines-pro-type-union-access,
   -cppcoreguidelines-pro-type-vararg,
   -misc-include-cleaner,
   -misc-non-private-member-variables-in-classes,

@@ -98,7 +98,7 @@ preflight(fs, space, lock) ──► terminate ──► sparse-aware copy(+prog
 
 ## Windows API notes
 
-- `OpenVirtualDisk` for an unattached compact/resize **must** use `OPEN_VIRTUAL_DISK_VERSION_2` parameters with `VIRTUAL_DISK_ACCESS_NONE`. `VIRTUAL_DISK_ACCESS_METAOPS` is not an alternative: with V1 or null parameters the handle opens and `CompactVirtualDisk` then returns `ERROR_ACCESS_DENIED`, and `METAOPS` combined with V2 parameters fails to open with `ERROR_INVALID_PARAMETER` (measured, docs/RESEARCH.md).
+- `OpenVirtualDisk` for an unattached compact/resize uses `OPEN_VIRTUAL_DISK_VERSION_2` parameters with `VIRTUAL_DISK_ACCESS_NONE`, which is the only mask V2 accepts — `VIRTUAL_DISK_ACCESS_METAOPS` with V2 fails to open with `ERROR_INVALID_PARAMETER`. V1 parameters with `METAOPS` compact unelevated as well; V2 is preferred because a wrong mask fails at open rather than part-way through the operation (measured, docs/RESEARCH.md).
 - `CompactVirtualDisk` supports `OVERLAPPED`; poll `GetVirtualDiskOperationProgress` every ~250 ms for the progress bar.
 - `ResizeVirtualDisk`: prefer `RESIZE_VIRTUAL_DISK_FLAG_RESIZE_TO_SMALLEST_SAFE_VIRTUAL_SIZE` for shrink; **never** pass `ALLOW_UNSAFE_VIRTUAL_SIZE`.
 - `GetVirtualDiskInformation` with `GET_VIRTUAL_DISK_INFO_SIZE` gives `VirtualSize`, `PhysicalSize`, `BlockSize`, `SectorSize`.

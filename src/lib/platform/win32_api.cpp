@@ -68,6 +68,45 @@ const Win32Api& real_win32_api() {
                DWORD data_length) {
                 return ::RegSetValueExW(key, value_name, reserved, type, data, data_length);
             },
+        .open_virtual_disk =
+            [](PVIRTUAL_STORAGE_TYPE storage_type, PCWSTR path, VIRTUAL_DISK_ACCESS_MASK access_mask,
+               OPEN_VIRTUAL_DISK_FLAG flags, POPEN_VIRTUAL_DISK_PARAMETERS parameters, PHANDLE handle) {
+                return ::OpenVirtualDisk(storage_type, path, access_mask, flags, parameters, handle);
+            },
+        .get_virtual_disk_information =
+            [](HANDLE handle, GET_VIRTUAL_DISK_INFO_VERSION version, PULONG size, PGET_VIRTUAL_DISK_INFO info,
+               PULONG used_size) {
+                // GetVirtualDiskInformation reads the version out of the struct.
+                // Taking it as a parameter keeps the table signature explicit
+                // about what is being asked for.
+                info->Version = version;
+                // size and used_size are in the order the API declares them.
+                // NOLINTNEXTLINE(readability-suspicious-call-argument)
+                return ::GetVirtualDiskInformation(handle, size, info, used_size);
+            },
+        .compact_virtual_disk =
+            [](HANDLE handle, COMPACT_VIRTUAL_DISK_FLAG flags, PCOMPACT_VIRTUAL_DISK_PARAMETERS parameters,
+               LPOVERLAPPED overlapped) {
+                return ::CompactVirtualDisk(handle, flags, parameters, overlapped);
+            },
+        .get_virtual_disk_operation_progress =
+            [](HANDLE handle, LPOVERLAPPED overlapped, PVIRTUAL_DISK_PROGRESS progress) {
+                return ::GetVirtualDiskOperationProgress(handle, overlapped, progress);
+            },
+        .create_virtual_disk =
+            [](PVIRTUAL_STORAGE_TYPE storage_type, PCWSTR path, VIRTUAL_DISK_ACCESS_MASK access_mask,
+               PSECURITY_DESCRIPTOR security_descriptor, CREATE_VIRTUAL_DISK_FLAG flags, ULONG provider_flags,
+               PCREATE_VIRTUAL_DISK_PARAMETERS parameters, LPOVERLAPPED overlapped, PHANDLE handle) {
+                return ::CreateVirtualDisk(storage_type, path, access_mask, security_descriptor, flags,
+                                           provider_flags, parameters, overlapped, handle);
+            },
+        .close_handle = [](HANDLE handle) { return ::CloseHandle(handle); },
+        .create_event =
+            [](LPSECURITY_ATTRIBUTES attributes, BOOL manual_reset, BOOL initial_state, LPCWSTR name) {
+                return ::CreateEventW(attributes, manual_reset, initial_state, name);
+            },
+        .wait_for_single_object =
+            [](HANDLE handle, DWORD milliseconds) { return ::WaitForSingleObject(handle, milliseconds); },
     };
     return table;
 }

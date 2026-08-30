@@ -2,6 +2,8 @@
 
 #include <cstdint>
 #include <filesystem>
+#include <functional>
+#include <memory>
 #include <optional>
 #include <string>
 #include <vector>
@@ -24,6 +26,73 @@ struct VolumeInfo {
     [[nodiscard]] bool supports_vhdx() const noexcept {
         return filesystem_name == "NTFS" || filesystem_name == "ReFS";
     }
+};
+
+/// What `GetVirtualDiskInformation` reports about a VHDX. Sizes are bytes.
+struct VirtualDiskInfo {
+    /// The maximum the disk can grow to -- what `shrink` and `grow` change.
+    std::uint64_t virtual_size = 0;
+    /// What the disk currently occupies, as the VHDX format sees it. This is not
+    /// the same as the file's size on the host volume, which is what
+    /// `IFileSystem::file_size_on_disk` reports and what users actually notice.
+    std::uint64_t physical_size = 0;
+    std::uint32_t block_size = 0;
+    std::uint32_t sector_size = 0;
+    /// Set for a differencing disk. Empty otherwise, which is every WSL disk
+    /// unless someone has built a chain by hand.
+    std::wstring parent_path;
+};
+
+/// Progress of a long-running virtual-disk operation, as a fraction.
+struct DiskProgress {
+    std::uint64_t current = 0;
+    std::uint64_t total = 0;
+};
+
+/// Called periodically while a compaction runs. Returning false asks the
+/// operation to stop at the next opportunity.
+using ProgressCallback = std::function<bool(const DiskProgress&)>;
+
+/// An open handle to a virtual disk. Closing is the destructor's job, so an
+/// operation cannot leak one down an error path.
+class IVirtualDiskHandle {
+public:
+    IVirtualDiskHandle() = default;
+    IVirtualDiskHandle(const IVirtualDiskHandle&) = delete;
+    IVirtualDiskHandle& operator=(const IVirtualDiskHandle&) = delete;
+    IVirtualDiskHandle(IVirtualDiskHandle&&) = delete;
+    IVirtualDiskHandle& operator=(IVirtualDiskHandle&&) = delete;
+    virtual ~IVirtualDiskHandle() = default;
+
+    [[nodiscard]] virtual Result<VirtualDiskInfo> information() const = 0;
+
+    /// Compacts in place, reporting progress until it finishes. The disk must
+    /// not be attached, and nothing here needs administrator rights.
+    [[nodiscard]] virtual Status compact(const ProgressCallback& progress) = 0;
+};
+
+/// Opens virtual disks.
+///
+/// The parameter shape is not a caller's choice. The implementation hard-codes
+/// `OPEN_VIRTUAL_DISK_VERSION_2` with `VIRTUAL_DISK_ACCESS_NONE`, which is the
+/// only mask V2 accepts and which compacts unelevated (PLAN.md D10).
+class IVirtualDisk {
+public:
+    IVirtualDisk() = default;
+    IVirtualDisk(const IVirtualDisk&) = delete;
+    IVirtualDisk& operator=(const IVirtualDisk&) = delete;
+    IVirtualDisk(IVirtualDisk&&) = delete;
+    IVirtualDisk& operator=(IVirtualDisk&&) = delete;
+    virtual ~IVirtualDisk() = default;
+
+    /// Opens an existing VHDX for metadata and compaction.
+    [[nodiscard]] virtual Result<std::unique_ptr<IVirtualDiskHandle>> open(
+        const std::filesystem::path& path) const = 0;
+
+    /// Creates a fixed-maximum dynamic VHDX. Only the tests need this -- it is
+    /// how contract tests get a real disk without shelling out to `diskpart`.
+    [[nodiscard]] virtual Status create(const std::filesystem::path& path,
+                                        std::uint64_t maximum_size) const = 0;
 };
 
 /// Read access to the WSL registry, plus the one write `relink` needs.

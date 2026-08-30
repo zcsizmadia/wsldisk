@@ -1,6 +1,7 @@
 #pragma once
 
 #include <windows.h>
+#include <virtdisk.h>
 
 #include <functional>
 
@@ -47,6 +48,32 @@ struct Win32Api {
     std::function<LSTATUS(HKEY key, LPCWSTR value_name, DWORD reserved, DWORD type, const BYTE* data,
                           DWORD data_length)>
         reg_set_value_ex;
+
+    // Virtual Disk Service. Like the registry calls, these return an error code
+    // rather than setting the last error.
+    std::function<DWORD(PVIRTUAL_STORAGE_TYPE storage_type, PCWSTR path, VIRTUAL_DISK_ACCESS_MASK access_mask,
+                        OPEN_VIRTUAL_DISK_FLAG flags, POPEN_VIRTUAL_DISK_PARAMETERS parameters,
+                        PHANDLE handle)>
+        open_virtual_disk;
+    std::function<DWORD(HANDLE handle, GET_VIRTUAL_DISK_INFO_VERSION version, PULONG size,
+                        PGET_VIRTUAL_DISK_INFO info, PULONG used_size)>
+        get_virtual_disk_information;
+    std::function<DWORD(HANDLE handle, COMPACT_VIRTUAL_DISK_FLAG flags,
+                        PCOMPACT_VIRTUAL_DISK_PARAMETERS parameters, LPOVERLAPPED overlapped)>
+        compact_virtual_disk;
+    std::function<DWORD(HANDLE handle, LPOVERLAPPED overlapped, PVIRTUAL_DISK_PROGRESS progress)>
+        get_virtual_disk_operation_progress;
+    std::function<DWORD(PVIRTUAL_STORAGE_TYPE storage_type, PCWSTR path, VIRTUAL_DISK_ACCESS_MASK access_mask,
+                        PSECURITY_DESCRIPTOR security_descriptor, CREATE_VIRTUAL_DISK_FLAG flags,
+                        ULONG provider_flags, PCREATE_VIRTUAL_DISK_PARAMETERS parameters,
+                        LPOVERLAPPED overlapped, PHANDLE handle)>
+        create_virtual_disk;
+
+    std::function<BOOL(HANDLE handle)> close_handle;
+    std::function<HANDLE(LPSECURITY_ATTRIBUTES attributes, BOOL manual_reset, BOOL initial_state,
+                         LPCWSTR name)>
+        create_event;
+    std::function<DWORD(HANDLE handle, DWORD milliseconds)> wait_for_single_object;
 };
 
 /// The table that forwards to the real Win32 entry points.
