@@ -2,7 +2,7 @@
 
 _Last updated: 2026-08-29. Dates are targets, not promises._
 
-Legend: `[ ]` todo · `[~]` in progress · `[x]` done
+Legend: `[ ]` todo · `[~]` deliberately not done (reason and issue linked) · `[x]` done
 
 ---
 
@@ -16,7 +16,7 @@ Goal: de-risk the unknowns, have a compiling skeleton and CI.
 - [x] `libwsldisk` static lib + `wsldisk` exe + `tests` targets; `wsldisk --version` works
 - [x] `.clang-format`, `.clang-tidy`, `.editorconfig`, `.gitattributes`, pre-commit hook (`.githooks/`, `scripts/install-hooks.ps1`)
 - [x] `scripts/dev-shell.ps1` — one-step local MSVC + CMake + Ninja + LLVM + vcpkg environment
-- [x] `ci.yml`: lint job (clang-format, markdownlint, actionlint, ruff; **clang-tidy advisory** — see below); build-test matrix MSVC + clang-cl × x64 + arm64 × Debug + Release; JUnit test reports
+- [x] `ci.yml`: lint job (clang-format, clang-tidy, markdownlint, actionlint, ruff, pytest); build-test matrix MSVC × x64 + arm64 and clang-cl × x64, Debug + Release; arm64 runs natively on `windows-11-arm`; JUnit test reports
 - [x] `ci.yml`: **coverage job with 100% line/branch/function gate** (`scripts/check-coverage.py`), Codecov upload, HTML artifact
 - [x] `ci.yml`: ASan job, integration job, package job (Release zips + SHA256SUMS)
 - [x] `Win32Api` fault-injection table in `platform/` so every error branch is testable
@@ -27,7 +27,7 @@ Goal: de-risk the unknowns, have a compiling skeleton and CI.
 - [x] Verify WSL2 works on `windows-2025` hosted runners; decide hosted vs self-hosted ([#7](https://github.com/zcsizmadia/wsldisk/issues/7))
 - [x] `codeql.yml`, `dependabot.yml` (actions), `vcpkg-baseline.yml`, `labeler.yml`, `stale.yml`
 - [x] Composite actions: `setup-toolchain`, `wsl-fixture` (SHA-pinned Alpine 3.22.4 rootfs), `wsl-cleanup`
-- [ ] Branch protection on `main`: all CI jobs required, linear history ([#9](https://github.com/zcsizmadia/wsldisk/issues/9))
+- [~] Branch protection on `main` — [not wanted at this stage](https://github.com/zcsizmadia/wsldisk/issues/9); CI being green gates a merge by convention. Revisit before 1.0
 - [x] Issue/PR templates, CODEOWNERS, `SECURITY.md`
 
 **Technical spikes** (throwaway code under `spikes/`, results recorded in `docs/RESEARCH.md`)
@@ -37,9 +37,11 @@ Goal: de-risk the unknowns, have a compiling skeleton and CI.
 - [x] Guest commands as uid 0; `wslapi.dll` found unusable unpackaged ([#3](https://github.com/zcsizmadia/wsldisk/issues/3))
 - [x] Registry layout across WSL inbox 1.x / Store 2.x ([#4](https://github.com/zcsizmadia/wsldisk/issues/4))
 - [x] Docker Desktop VHDX lock behaviour when Docker is "stopped" vs quit ([#5](https://github.com/zcsizmadia/wsldisk/issues/5))
-- [ ] Elevation relaunch + named-pipe result streaming prototype ([#6](https://github.com/zcsizmadia/wsldisk/issues/6))
+- [~] Elevation relaunch + named-pipe result streaming — [moved to M2](https://github.com/zcsizmadia/wsldisk/issues/6). Compaction turned out to need no elevation at all (D10), so this belongs with the attach-read-only and resize work that does
 
-**Exit criteria:** CI green with the 100% coverage gate passing on the skeleton, all spikes answered in RESEARCH.md, open questions in PLAN.md §8 resolved or converted to issues.
+**Exit criteria: met.** CI is green across 16 required checks with the 100% coverage gate passing and no exclusions; every spike is answered in [docs/RESEARCH.md](docs/RESEARCH.md); PLAN.md §8 now separates what was measured from what is still open.
+
+Five of the six spikes contradicted the plan, which is what they were for: `wslapi.dll` is unusable from an unpackaged process and left the design; `CompactVirtualDisk` needs V2 open parameters, not `METAOPS`; `wsl --terminate` never releases the disk (D9); the `shrink` fit check has to come from `resize2fs -P`; and `docker-desktop-data` no longer exists. The headline result is that unelevated compaction reclaims everything `fstrim` freed, in 0.2 s -- the premise the whole project rested on, now measured.
 
 ---
 
@@ -53,7 +55,7 @@ Goal: the 80% use case — see where the space is and get it back — shippable.
 - [ ] `wsldisk list` table + `--json` + `--scan` for orphaned VHDX
 - [ ] `Plan → Execute → Verify` operation framework with progress sink and undo stack
 - [ ] `CompactOperation`: preflight, `fstrim`, terminate, wait-for-unlock, compact (unattached), report
-- [ ] Attached-RO "full" compaction when elevated; `--elevate` relaunch
+- [ ] Attached-RO "full" compaction when elevated; `--elevate` relaunch (needs the elevation IPC, [#6](https://github.com/zcsizmadia/wsldisk/issues/6), now an M2 item)
 - [ ] `--all`, `--dry-run`, `--no-trim`, `--restart`, `--file <vhdx>`
 - [ ] `wsldisk info <distro>` detail view + `--json`
 - [ ] `wsldisk trim <distro>` (fstrim only, no shutdown)
