@@ -79,7 +79,7 @@ struct Machine {
         host.on_command("/bin/df", df_output(8 * gigabyte, 1090921693184ULL));
     }
 
-    [[nodiscard]] wsldisk::Result<DiskInfo> run(const ProbeOptions& options = {}) const {
+    [[nodiscard]] DiskInfo run(const ProbeOptions& options = {}) const {
         return measure(ubuntu(), filesystem, disks, host, options);
     }
 };
@@ -89,37 +89,31 @@ struct Machine {
 TEST_CASE("measure reports every field when everything is readable", "[model][disk-info]") {
     const Machine machine;
 
-    const auto info = machine.run();
-
-    REQUIRE(info.has_value());
-    CHECK(info->virtual_size == 1024 * gigabyte);
-    CHECK(info->file_size == 14 * gigabyte);
-    CHECK(info->size_on_disk == 14 * gigabyte);
-    CHECK(info->allocated_bytes == 14 * gigabyte);
-    CHECK(info->is_sparse == true);
-    CHECK(info->guest_used == 8 * gigabyte);
-    CHECK(info->guest_free == 1090921693184ULL);
-    CHECK(info->notes.empty());
+    const DiskInfo info = machine.run();
+    CHECK(info.virtual_size == 1024 * gigabyte);
+    CHECK(info.file_size == 14 * gigabyte);
+    CHECK(info.size_on_disk == 14 * gigabyte);
+    CHECK(info.allocated_bytes == 14 * gigabyte);
+    CHECK(info.is_sparse == true);
+    CHECK(info.guest_used == 8 * gigabyte);
+    CHECK(info.guest_free == 1090921693184ULL);
+    CHECK(info.notes.empty());
 }
 
 TEST_CASE("reclaimable is the host size minus what the guest is using", "[model][disk-info]") {
     const Machine machine;
 
-    const auto info = machine.run();
-
-    REQUIRE(info.has_value());
-    CHECK(info->reclaimable() == 6 * gigabyte);
+    const DiskInfo info = machine.run();
+    CHECK(info.reclaimable() == 6 * gigabyte);
 }
 
 TEST_CASE("reclaimable is unknown without a guest measurement", "[model][disk-info]") {
     Machine machine;
     machine.host.set_running({});
 
-    const auto info = machine.run();
-
-    REQUIRE(info.has_value());
-    CHECK_FALSE(info->guest_used.has_value());
-    CHECK_FALSE(info->reclaimable().has_value());
+    const DiskInfo info = machine.run();
+    CHECK_FALSE(info.guest_used.has_value());
+    CHECK_FALSE(info.reclaimable().has_value());
 }
 
 TEST_CASE("reclaimable is unknown without a host measurement", "[model][disk-info]") {
@@ -143,25 +137,21 @@ TEST_CASE("a stopped distribution is not started to measure it", "[model][disk-i
     Machine machine;
     machine.host.set_running({});
 
-    const auto info = machine.run();
-
-    REQUIRE(info.has_value());
+    const DiskInfo info = machine.run();
     CHECK(machine.host.commands().empty());
-    REQUIRE(info->notes.size() == 1);
-    CHECK(info->notes[0].find("--probe") != std::string::npos);
+    REQUIRE(info.notes.size() == 1);
+    CHECK(info.notes[0].find("--probe") != std::string::npos);
     // The host-side measurements are all still there.
-    CHECK(info->file_size.has_value());
-    CHECK(info->virtual_size.has_value());
+    CHECK(info.file_size.has_value());
+    CHECK(info.virtual_size.has_value());
 }
 
 TEST_CASE("probing reads a stopped distribution's guest usage", "[model][disk-info]") {
     Machine machine;
     machine.host.set_running({});
 
-    const auto info = machine.run(ProbeOptions{.probe_guest = true});
-
-    REQUIRE(info.has_value());
-    CHECK(info->guest_used == 8 * gigabyte);
+    const DiskInfo info = machine.run(ProbeOptions{.probe_guest = true});
+    CHECK(info.guest_used == 8 * gigabyte);
     REQUIRE(machine.host.commands().size() == 1);
     CHECK(machine.host.commands()[0].argv[0] == "/bin/df");
 }
@@ -171,9 +161,7 @@ TEST_CASE("the guest probe uses an absolute path", "[model][disk-info]") {
     // for the same reason the real wrapper does.
     const Machine machine;
 
-    const auto info = machine.run();
-
-    REQUIRE(info.has_value());
+    const DiskInfo info = machine.run();
     REQUIRE(machine.host.commands().size() == 1);
     CHECK(machine.host.commands()[0].argv[0].starts_with('/'));
     CHECK(machine.host.commands()[0].distribution == "Ubuntu");
@@ -184,16 +172,14 @@ TEST_CASE("a locked disk leaves the virtual size unknown", "[model][disk-info]")
     Machine machine;
     machine.disks.fail_open(wsldisk::Error{ErrorCode::DistroBusy, "the disk is in use", "shut WSL down"});
 
-    const auto info = machine.run();
-
-    REQUIRE(info.has_value());
-    CHECK_FALSE(info->virtual_size.has_value());
+    const DiskInfo info = machine.run();
+    CHECK_FALSE(info.virtual_size.has_value());
     // Everything the filesystem can answer without the handle is still there.
-    CHECK(info->file_size.has_value());
-    CHECK(info->size_on_disk.has_value());
-    CHECK(info->guest_used.has_value());
-    REQUIRE(info->notes.size() == 1);
-    CHECK(info->notes[0].find("in use") != std::string::npos);
+    CHECK(info.file_size.has_value());
+    CHECK(info.size_on_disk.has_value());
+    CHECK(info.guest_used.has_value());
+    REQUIRE(info.notes.size() == 1);
+    CHECK(info.notes[0].find("in use") != std::string::npos);
 }
 
 TEST_CASE("a filesystem that cannot answer leaves those fields unknown", "[model][disk-info]") {
@@ -201,15 +187,13 @@ TEST_CASE("a filesystem that cannot answer leaves those fields unknown", "[model
     machine.filesystem.fail_queries(
         wsldisk::Error{ErrorCode::Preflight, "the volume went away", "check the drive"});
 
-    const auto info = machine.run();
-
-    REQUIRE(info.has_value());
-    CHECK_FALSE(info->file_size.has_value());
-    CHECK_FALSE(info->size_on_disk.has_value());
-    CHECK_FALSE(info->is_sparse.has_value());
-    CHECK_FALSE(info->allocated_bytes.has_value());
+    const DiskInfo info = machine.run();
+    CHECK_FALSE(info.file_size.has_value());
+    CHECK_FALSE(info.size_on_disk.has_value());
+    CHECK_FALSE(info.is_sparse.has_value());
+    CHECK_FALSE(info.allocated_bytes.has_value());
     // One note per failed measurement, so the output says what is missing.
-    CHECK(info->notes.size() == 4);
+    CHECK(info.notes.size() == 4);
 }
 
 TEST_CASE("a disk that will not describe itself leaves the size unknown", "[model][disk-info]") {
@@ -218,12 +202,10 @@ TEST_CASE("a disk that will not describe itself leaves the size unknown", "[mode
     machine.disks.fail_information(
         wsldisk::Error{ErrorCode::Generic, "the disk would not describe itself", "re-run"});
 
-    const auto info = machine.run();
-
-    REQUIRE(info.has_value());
-    CHECK_FALSE(info->virtual_size.has_value());
-    REQUIRE(info->notes.size() == 1);
-    CHECK(info->notes[0].find("describe itself") != std::string::npos);
+    const DiskInfo info = machine.run();
+    CHECK_FALSE(info.virtual_size.has_value());
+    REQUIRE(info.notes.size() == 1);
+    CHECK(info.notes[0].find("describe itself") != std::string::npos);
 }
 
 TEST_CASE("a host that cannot list running distributions stops the probe", "[model][disk-info]") {
@@ -231,13 +213,11 @@ TEST_CASE("a host that cannot list running distributions stops the probe", "[mod
     machine.host.fail_running(
         wsldisk::Error{ErrorCode::Generic, "wsl.exe did not answer", "check WSL is installed"});
 
-    const auto info = machine.run();
-
-    REQUIRE(info.has_value());
-    CHECK_FALSE(info->guest_used.has_value());
+    const DiskInfo info = machine.run();
+    CHECK_FALSE(info.guest_used.has_value());
     CHECK(machine.host.commands().empty());
-    REQUIRE(info->notes.size() == 1);
-    CHECK(info->notes[0].find("did not answer") != std::string::npos);
+    REQUIRE(info.notes.size() == 1);
+    CHECK(info.notes[0].find("did not answer") != std::string::npos);
 }
 
 TEST_CASE("a guest command that could not be run leaves usage unknown", "[model][disk-info]") {
@@ -247,12 +227,10 @@ TEST_CASE("a guest command that could not be run leaves usage unknown", "[model]
     machine.host.fail_command(
         wsldisk::Error{ErrorCode::Generic, "wsl.exe did not start", "check WSL is installed"});
 
-    const auto info = machine.run();
-
-    REQUIRE(info.has_value());
-    CHECK_FALSE(info->guest_used.has_value());
-    REQUIRE(info->notes.size() == 1);
-    CHECK(info->notes[0].find("did not start") != std::string::npos);
+    const DiskInfo info = machine.run();
+    CHECK_FALSE(info.guest_used.has_value());
+    REQUIRE(info.notes.size() == 1);
+    CHECK(info.notes[0].find("did not start") != std::string::npos);
 }
 
 TEST_CASE("a guest command that fails to run leaves usage unknown", "[model][disk-info]") {
@@ -261,24 +239,20 @@ TEST_CASE("a guest command that fails to run leaves usage unknown", "[model][dis
     failed.exit_code = 1;
     machine.host.on_command("/bin/df", failed);
 
-    const auto info = machine.run();
-
-    REQUIRE(info.has_value());
-    CHECK_FALSE(info->guest_used.has_value());
-    REQUIRE(info->notes.size() == 1);
-    CHECK(info->notes[0].find("df exited 1") != std::string::npos);
+    const DiskInfo info = machine.run();
+    CHECK_FALSE(info.guest_used.has_value());
+    REQUIRE(info.notes.size() == 1);
+    CHECK(info.notes[0].find("df exited 1") != std::string::npos);
 }
 
 TEST_CASE("unreadable df output leaves usage unknown", "[model][disk-info]") {
     Machine machine;
     machine.host.on_command("/bin/df", nonsense_output());
 
-    const auto info = machine.run();
-
-    REQUIRE(info.has_value());
-    CHECK_FALSE(info->guest_used.has_value());
-    REQUIRE(info->notes.size() == 1);
-    CHECK(info->notes[0].find("df output") != std::string::npos);
+    const DiskInfo info = machine.run();
+    CHECK_FALSE(info.guest_used.has_value());
+    REQUIRE(info.notes.size() == 1);
+    CHECK(info.notes[0].find("df output") != std::string::npos);
 }
 
 TEST_CASE("parse_df reads the columns from the right", "[model][disk-info]") {

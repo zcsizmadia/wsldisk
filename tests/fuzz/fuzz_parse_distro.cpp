@@ -38,16 +38,21 @@ extern "C" int LLVMFuzzerTestOneInput(const std::uint8_t* data, std::size_t size
     const std::string_view input{reinterpret_cast<const char*>(data), size};
     const auto parts = split(input, 4);
 
+    // Built at the path the model reads, taken from the model. Hard-coding it
+    // here is how the canned hives ended up disagreeing with Windows while every
+    // test still passed.
+    const std::wstring root{wsldisk::model::lxss_key()};
+
     wsldisk::testing::FakeRegistry registry;
-    registry.add_key(L"Lxss");
+    registry.add_key(root);
 
     const std::wstring guid = L"{00000000-0000-0000-0000-000000000001}";
-    const std::wstring key = L"Lxss\\" + guid;
+    const std::wstring key = root + L"\\" + guid;
     registry.add_key(key);
     registry.set(key, L"DistributionName", wsldisk::model::to_wide(parts[0]));
     registry.set(key, L"BasePath", wsldisk::model::to_wide(parts[1]));
     registry.set(key, L"VhdFileName", wsldisk::model::to_wide(parts[2]));
-    registry.set(L"Lxss", L"DefaultDistribution", wsldisk::model::to_wide(parts[3]));
+    registry.set(root, L"DefaultDistribution", wsldisk::model::to_wide(parts[3]));
 
     const auto list = wsldisk::model::enumerate(registry);
     if (!list.has_value()) {

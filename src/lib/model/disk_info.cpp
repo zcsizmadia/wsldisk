@@ -89,8 +89,8 @@ std::optional<GuestUsage> parse_df(std::string_view output) {
     return GuestUsage{.used = *used, .available = *available};
 }
 
-Result<DiskInfo> measure(const Distro& distro, const IFileSystem& filesystem, const IVirtualDisk& disks,
-                         const IWslHost& host, const ProbeOptions& options) {
+DiskInfo measure(const Distro& distro, const IFileSystem& filesystem, const IVirtualDisk& disks,
+                 const IWslHost& host, const ProbeOptions& options) {
     DiskInfo info;
 
     if (const auto size = filesystem.file_size(distro.vhdx_path); size.has_value()) {

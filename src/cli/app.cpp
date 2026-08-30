@@ -9,8 +9,14 @@
 #include <vector>
 
 #include "errors.h"
+#include "list_command.h"
 #include "logger.h"
 #include "options.h"
+#include "platform/clock.h"
+#include "platform/filesystem.h"
+#include "platform/registry.h"
+#include "platform/virtual_disk.h"
+#include "platform/wsl_host.h"
 #include "render.h"
 #include "version.h"
 
@@ -36,6 +42,9 @@ int run(std::span<const std::string> args, std::ostream& out, std::ostream& err)
     GlobalOptions options;
     add_global_options(app, options);
 
+    ListOptions list_options;
+    add_list_command(app, options, list_options);
+
     // CLI11 parses in reverse order, so hand it a reversed copy of argv-style input.
     std::vector<std::string> reversed(args.rbegin(), args.rend());
 
@@ -52,7 +61,22 @@ int run(std::span<const std::string> args, std::ostream& out, std::ostream& err)
         return exit_code_for(ErrorCode::Usage);
     }
 
-    // No subcommand yet: every command lands in M1 (see ROADMAP.md).
+    StreamLogger logger{err, options.verbose, options.log_file};
+
+    if (app.got_subcommand("list")) {
+        // The real implementations. Every one is an interface, which is what
+        // lets the unit tests drive the same code with fakes.
+        const platform::Win32Registry registry;
+        const platform::Win32FileSystem filesystem;
+        const platform::Win32VirtualDisk disks;
+        const platform::WslExeHost host;
+        const Services services{
+            .registry = &registry, .filesystem = &filesystem, .disks = &disks, .host = &host};
+
+        return run_list(services, list_options, options, logger, out, err);
+    }
+
+    // Every other command lands later in M1 (see ROADMAP.md).
     out << app.help();
     return exit_code_success;
 }
