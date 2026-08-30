@@ -95,6 +95,16 @@
       }
     },
     {
+      "name": "x64-fuzz",
+      "displayName": "x64 libFuzzer targets (clang-cl)",
+      "inherits": "clang-cl",
+      "architecture": { "value": "x64", "strategy": "external" },
+      "cacheVariables": {
+        "VCPKG_TARGET_TRIPLET": "x64-windows-static",
+        "WSLDISK_BUILD_FUZZERS": "ON"
+      }
+    },
+    {
       "name": "x64-asan",
       "displayName": "x64 Debug + AddressSanitizer (MSVC)",
       "inherits": "msvc",
@@ -113,7 +123,8 @@
     { "name": "x64-clang-release", "configurePreset": "x64-clang", "configuration": "Release" },
     { "name": "x64-coverage", "configurePreset": "x64-coverage", "configuration": "Debug" },
     { "name": "x64-coverage-gate", "configurePreset": "x64-coverage", "configuration": "Debug", "targets": ["coverage"] },
-    { "name": "x64-asan", "configurePreset": "x64-asan", "configuration": "Debug" }
+    { "name": "x64-asan", "configurePreset": "x64-asan", "configuration": "Debug" },
+    { "name": "x64-fuzz", "configurePreset": "x64-fuzz", "configuration": "Release" }
   ],
   "testPresets": [
     {
@@ -127,6 +138,7 @@
     { "name": "x64-clang-debug", "inherits": "base", "configurePreset": "x64-clang", "configuration": "Debug" },
     { "name": "x64-coverage", "inherits": "base", "configurePreset": "x64-coverage", "configuration": "Debug" },
     { "name": "x64-asan", "inherits": "base", "configurePreset": "x64-asan", "configuration": "Debug" },
+    { "name": "x64-fuzz", "inherits": "base", "configurePreset": "x64-fuzz", "configuration": "Release" },
     {
       "name": "x64-debug-unit",
       "inherits": "x64-debug",

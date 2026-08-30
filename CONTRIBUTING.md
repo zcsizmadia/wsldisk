@@ -44,6 +44,7 @@ It finds vcpkg via `VCPKG_ROOT`, a `vcpkg` checkout next to this repository, or
 | `x64-coverage` | clang-cl with source-based coverage; hosts the `coverage` target |
 | `x64-asan` | MSVC with AddressSanitizer (clang-cl's Windows ASan miscompiles exception handling) |
 | `x64-lint` | single-config generator, only to produce `compile_commands.json` for clang-tidy |
+| `x64-fuzz` | clang-cl with libFuzzer; `ctest -L fuzz` replays the corpus |
 
 Test presets `x64-debug-unit`, `x64-debug-contract` and `x64-debug-integration`
 select one layer of the pyramid.

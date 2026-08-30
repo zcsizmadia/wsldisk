@@ -1,0 +1,169 @@
+name: nightly
+
+# Longer-running checks that would make every pull request slow: fuzzing with a
+# real time budget, and the integration suite against a WSL install that has just
+# been updated to whatever Microsoft is shipping today.
+#
+# ci.yml already replays the fuzz corpus on every pull request; this is where new
+# inputs are actually discovered.
+
+on:
+  schedule:
+    - cron: '0 3 * * *'
+  workflow_dispatch:
+    inputs:
+      fuzz-seconds:
+        description: Seconds to run each fuzz target
+        required: false
+        default: '600'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: nightly
+  cancel-in-progress: false
+
+jobs:
+  fuzz:
+    name: fuzz ${{ matrix.target }}
+    runs-on: windows-2025
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        target: [fuzz_parse_size]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+
+      - uses: ./.github/actions/setup-toolchain
+        with:
+          llvm: 'true'
+
+      # The corpus grows across runs: restore whatever the last night found, fuzz
+      # on top of it, and save it again. `restore-keys` makes a run that finds
+      # nothing still start from the most recent corpus rather than from the
+      # seeds alone.
+      - name: Restore the corpus
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9  # v6.1.0
+        with:
+          path: corpus-cache/${{ matrix.target }}
+          key: fuzz-corpus-${{ matrix.target }}-${{ github.run_id }}
+          restore-keys: |
+            fuzz-corpus-${{ matrix.target }}-
+
+      - name: Build
+        shell: pwsh
+        run: |
+          cmake --preset x64-fuzz
+          cmake --build build/x64-fuzz --config Release
+
+      - name: Fuzz
+        id: fuzz
+        shell: pwsh
+        run: |
+          $seconds = '${{ inputs.fuzz-seconds }}'
+          if (-not $seconds) { $seconds = '600' }
+          $corpus = "corpus-cache/${{ matrix.target }}"
+          New-Item -ItemType Directory -Force -Path $corpus, artifacts | Out-Null
+
+          $exe = "build/x64-fuzz/tests/fuzz/Release/${{ matrix.target }}.exe"
+          # The accumulated corpus comes first: libFuzzer writes new inputs there
+          # and treats the later directories as read-only seeds.
+          & $exe $corpus tests/fuzz/corpus `
+              -max_total_time=$seconds -print_final_stats=1 -timeout=25 `
+              -artifact_prefix=artifacts/ 2>&1 | Tee-Object -FilePath fuzz.log
+          $code = $LASTEXITCODE
+          "exit-code=$code" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+
+          $found = Get-ChildItem artifacts -File -ErrorAction SilentlyContinue
+          if ($found) {
+            Write-Host "::error::${{ matrix.target }} found $($found.Count) reproducer(s)"
+            "crashed=true" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+          } else {
+            "crashed=false" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+          }
+          # A non-zero exit without an artifact means the run itself broke.
+          if ($code -ne 0 -and -not $found) { throw "fuzzer exited with $code and left no reproducer" }
+
+      - name: Save the corpus
+        if: always()
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9  # v6.1.0
+        with:
+          path: corpus-cache/${{ matrix.target }}
+          key: fuzz-corpus-${{ matrix.target }}-${{ github.run_id }}
+
+      - name: Upload reproducers
+        if: always() && steps.fuzz.outputs.crashed == 'true'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7.0.1
+        with:
+          name: fuzz-reproducers-${{ matrix.target }}
+          path: |
+            artifacts/
+            fuzz.log
+
+      - name: Describe the finding
+        if: always() && steps.fuzz.outputs.crashed == 'true'
+        shell: pwsh
+        run: |
+          $body = @()
+          $body += "``${{ matrix.target }}`` found an input that crashes or violates an invariant."
+          $body += ""
+          $body += "Run: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+          $body += "Commit: ``${{ github.sha }}``"
+          $body += ""
+          $body += "Reproduce, after downloading the ``fuzz-reproducers-${{ matrix.target }}`` artifact:"
+          $body += ""
+          $body += '```powershell'
+          $body += 'cmake --preset x64-fuzz'
+          $body += 'cmake --build build/x64-fuzz --config Release'
+          $body += "build/x64-fuzz/tests/fuzz/Release/${{ matrix.target }}.exe <reproducer>"
+          $body += '```'
+          $body += ""
+          $body += "Last lines of the fuzzer output:"
+          $body += ""
+          $body += '```text'
+          $body += (Get-Content fuzz.log -Tail 30 -ErrorAction SilentlyContinue)
+          $body += '```'
+          $body -join "`n" | Out-File -FilePath finding.md -Encoding utf8
+          Get-Content finding.md
+
+      - name: Open an issue
+        if: always() && steps.fuzz.outputs.crashed == 'true' && github.event_name == 'schedule'
+        uses: peter-evans/create-issue-from-file@e8ef132d6df98ed982188e460ebb3b5d4ef3a9cd  # v5
+        with:
+          title: "fuzz: ${{ matrix.target }} found a crash"
+          content-filepath: finding.md
+          labels: bug, area:tests
+
+  integration:
+    name: integration against current WSL
+    runs-on: windows-2025
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+
+      - uses: ./.github/actions/setup-toolchain
+
+      - name: Build
+        shell: pwsh
+        run: |
+          cmake --preset x64-debug
+          cmake --build build/x64-debug --config Debug
+
+      - id: fixture
+        uses: ./.github/actions/wsl-fixture
+
+      - name: Report the WSL build under test
+        shell: pwsh
+        run: wsl.exe --version
+
+      - name: Integration tests
+        shell: pwsh
+        run: ctest --test-dir build/x64-debug -C Debug -L integration --output-on-failure
+
+      - name: Clean up scratch distros
+        if: always()
+        uses: ./.github/actions/wsl-cleanup
+        with:
+          location: ${{ steps.fixture.outputs.location }}

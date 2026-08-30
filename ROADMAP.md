@@ -21,7 +21,7 @@ Goal: de-risk the unknowns, have a compiling skeleton and CI.
 - [x] `ci.yml`: ASan job, integration job, package job (Release zips + SHA256SUMS)
 - [x] `Win32Api` fault-injection table in `platform/` so every error branch is testable
 - [x] Test skeleton: `tests/unit` (Catch2), `tests/contract` (real Win32 on temp files), `tests/integration` (gated by `WSLDISK_INTEGRATION`)
-- [ ] `tests/fuzz` targets and `nightly.yml` ([#10](https://github.com/zcsizmadia/wsldisk/issues/10))
+- [x] `tests/fuzz` targets and `nightly.yml` ([#10](https://github.com/zcsizmadia/wsldisk/issues/10)) — size-string target; registry and `wsl.exe` output parsers follow their code in M1
 - [ ] Fakes for the remaining interfaces (`FakeRegistry`, `FakeVirtualDisk`, `FakeWslHost`, `FakeFileSystem`, `FakeClock`) — land with the interfaces in M1
 - [x] Make `clang-tidy` a blocking gate ([#8](https://github.com/zcsizmadia/wsldisk/issues/8)) — needed a pinned LLVM 20; the crash was specific to clang-tidy 18
 - [x] Verify WSL2 works on `windows-2025` hosted runners; decide hosted vs self-hosted ([#7](https://github.com/zcsizmadia/wsldisk/issues/7))

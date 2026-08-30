@@ -200,19 +200,47 @@ Result<std::uint64_t> parse_size(std::string_view text) {
 }
 
 std::string format_size(std::uint64_t bytes) {
-    constexpr std::array<std::string_view, 5> units{"KiB", "MiB", "GiB", "TiB", "PiB"};
-
     if (bytes < kib) {
         return std::format("{} B", bytes);
     }
 
-    auto value = static_cast<double>(bytes) / 1024.0;
-    std::size_t unit_index = 0;
-    while (value >= 1024.0 && unit_index + 1 < units.size()) {
-        value /= 1024.0;
-        ++unit_index;
+    // Integer arithmetic throughout, and truncating rather than rounding.
+    //
+    // A double cannot hold the top of the u64 range: `static_cast<double>` of
+    // u64 max rounds *up* to 2^64, which then renders as "16384.0 PiB" -- a
+    // string parse_size rejects as an overflow, so a size the tool printed could
+    // not be pasted back into `--to`. Found by the fuzzer.
+    //
+    // Truncating also stops a value overstating its own unit: 1 GiB minus a byte
+    // must read "1023.9 MiB", never "1024.0 MiB".
+    struct Unit {
+        std::uint64_t divisor;
+        std::string_view name;
+    };
+
+    constexpr std::array<Unit, 4> larger_units{{
+        {.divisor = pib, .name = "PiB"},
+        {.divisor = tib, .name = "TiB"},
+        {.divisor = gib, .name = "GiB"},
+        {.divisor = mib, .name = "MiB"},
+    }};
+
+    // `bytes >= kib` here, so kibibytes are the floor and the loop only has to
+    // look for something larger.
+    std::uint64_t divisor = kib;
+    std::string_view name = "KiB";
+    for (const auto& unit : larger_units) {
+        if (bytes >= unit.divisor) {
+            divisor = unit.divisor;
+            name = unit.name;
+            break;
+        }
     }
-    return std::format("{:.1f} {}", value, units.at(unit_index));
+
+    const std::uint64_t whole = bytes / divisor;
+    // `bytes % divisor < divisor <= 2^50`, so the multiplication cannot overflow.
+    const std::uint64_t tenths = ((bytes % divisor) * 10) / divisor;
+    return std::format("{}.{} {}", whole, tenths, name);
 }
 
 std::string format_size_delta(std::int64_t bytes) {

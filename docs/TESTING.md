@@ -59,3 +59,50 @@ untested code is not shipped.
 3. Coverage still 100% (CI enforces).
 4. Golden output updated if user-visible output changed.
 5. `docs/` updated if behaviour changed.
+
+## Fuzzing in practice
+
+`tests/fuzz/` holds libFuzzer targets. They build only under clang-cl (MSVC has
+no libFuzzer), behind `WSLDISK_BUILD_FUZZERS`, which the `x64-fuzz` preset sets:
+
+```powershell
+cmake --preset x64-fuzz
+cmake --build build/x64-fuzz --config Release
+ctest --test-dir build/x64-fuzz -C Release -L fuzz    # replay the corpus
+build/x64-fuzz/tests/fuzz/Release/fuzz_parse_size.exe tests/fuzz/corpus -max_total_time=60
+```
+
+Two things run the targets, for different reasons:
+
+- **Every pull request** replays the checked-in corpus once (`-runs=0`). That is
+  regression cover, not fuzzing: an input that once found a bug keeps being
+  checked, in well under a second.
+- **`nightly.yml`** fuzzes for real with a time budget, carries the accumulated
+  corpus between runs in the actions cache, and opens an issue with the
+  reproducer when a target crashes.
+
+A target asserts *invariants*, not expected values — a fuzzer cannot know what
+`64G` should mean, but it can prove the function never crashes, never disagrees
+with itself between two calls on the same input, and never returns a failure the
+CLI could not render. `FUZZ_REQUIRE` aborts rather than using `assert`, because
+the fuzz targets build in Release where `NDEBUG` would remove the check.
+
+New inputs the fuzzer finds interesting are committed back into
+`tests/fuzz/corpus/` so the pull-request replay keeps covering them.
+
+### What the first run found
+
+The size-string target failed on its first corpus replay, before generating a
+single input of its own, on the seed `18014398509481983K`:
+
+`format_size` computed its mantissa in `double`. `static_cast<double>` of a value
+near the top of the `uint64_t` range rounds *up* — u64 max became exactly 2^64 —
+so the largest representable size rendered as `"16384.0 PiB"`, which `parse_size`
+then rejected as an overflow. A size the tool printed could not be pasted back
+into `--to`. `format_size` now computes the whole part and the tenths digit in
+integer arithmetic and truncates, which also stops a value overstating its unit
+(1 GiB minus one byte reads `1023.9 MiB`, never `1024.0 MiB`).
+
+That is the argument for fuzzing a function that already had 100% branch
+coverage: the unit tests asserted the values someone thought to write down, and
+this was a relationship *between* two functions that no single test covered.
