@@ -3,6 +3,7 @@
 #include <cstdint>
 #include <filesystem>
 #include <string>
+#include <string_view>
 #include <vector>
 
 #include "../errors.h"
@@ -73,6 +74,13 @@ struct DistroList {
     /// Case-insensitive, because `wsl.exe` matches names that way.
     [[nodiscard]] const Distro* find(std::string_view name) const noexcept;
 };
+
+/// Where WSL records its distributions, relative to `HKEY_CURRENT_USER`.
+///
+/// Exported so the canned hives in the tests are built at the same path the
+/// code reads. They were not, and every unit test passed while `list` on a real
+/// machine could not find the key at all.
+[[nodiscard]] std::wstring_view lxss_key();
 
 /// Reads every distribution out of the `Lxss` key.
 ///

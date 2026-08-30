@@ -66,11 +66,12 @@ struct ProbeOptions {
 
 /// Measures one distribution's disk.
 ///
-/// Returns an error only when something structural is wrong. Individual
-/// measurements that fail become unset fields and notes.
-[[nodiscard]] Result<DiskInfo> measure(const Distro& distro, const IFileSystem& filesystem,
-                                       const IVirtualDisk& disks, const IWslHost& host,
-                                       const ProbeOptions& options);
+/// Cannot fail, and deliberately returns no `Result`: every individual
+/// measurement that goes wrong becomes an unset field and a note, so there is no
+/// outcome left for an error to describe. An earlier version returned
+/// `Result<DiskInfo>` and gave every caller a branch that could not be reached.
+[[nodiscard]] DiskInfo measure(const Distro& distro, const IFileSystem& filesystem, const IVirtualDisk& disks,
+                               const IWslHost& host, const ProbeOptions& options);
 
 /// Used and free bytes from `df -B1` output.
 ///

@@ -28,9 +28,16 @@ try {
     cmake --build $BuildDir --config $Configuration
     if ($LASTEXITCODE -ne 0) { throw "build failed" }
 
+    # The test binary directly rather than through ctest: ctest did not pass the
+    # environment variable down to the test process, so the files were never
+    # rewritten and the script reported success anyway.
+    $exe = Join-Path $BuildDir "tests/unit/$Configuration/wsldisk_unit_tests.exe"
+    if (-not (Test-Path $exe)) { throw "no unit test binary at $exe" }
+
     $env:WSLDISK_UPDATE_GOLDEN = '1'
     try {
-        ctest --test-dir $BuildDir -C $Configuration -R '^unit\.' --output-on-failure
+        & $exe
+        if ($LASTEXITCODE -ne 0) { throw "the unit suite failed; golden files may be incomplete" }
     } finally {
         Remove-Item Env:\WSLDISK_UPDATE_GOLDEN
     }

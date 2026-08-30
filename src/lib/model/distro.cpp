@@ -11,9 +11,9 @@
 namespace wsldisk::model {
 namespace {
 
-/// The root key. Relative to whatever the registry implementation is rooted at,
-/// which is HKCU in production and a scratch key in the contract tests.
-constexpr std::wstring_view lxss_key = L"Lxss";
+/// Relative to whatever the registry implementation is rooted at, which is
+/// HKEY_CURRENT_USER in production and a scratch key in the contract tests.
+constexpr std::wstring_view lxss_key_path = LR"(Software\Microsoft\Windows\CurrentVersion\Lxss)";
 
 constexpr std::wstring_view extended_prefix = LR"(\\?\)";
 constexpr std::wstring_view extended_unc_prefix = LR"(\\?\UNC\)";
@@ -76,6 +76,10 @@ private:
 
 }  // namespace
 
+std::wstring_view lxss_key() {
+    return lxss_key_path;
+}
+
 std::wstring strip_extended_prefix(std::wstring_view path) {
     // The UNC form has to be checked first: it starts with the plain prefix, and
     // stripping only that would leave `UNC\server\share`, which resolves to
@@ -107,21 +111,21 @@ const Distro* DistroList::find(std::string_view name) const noexcept {
 }
 
 Result<DistroList> enumerate(const IRegistry& registry) {
-    const auto guids = registry.subkeys(lxss_key);
+    const auto guids = registry.subkeys(lxss_key_path);
     if (!guids.has_value()) {
         return std::unexpected(guids.error());
     }
 
     // Absent or dangling are both normal: a machine can have no default, and the
     // value can outlive the distribution it names.
-    const auto default_guid = registry.read_string(lxss_key, L"DefaultDistribution");
+    const auto default_guid = registry.read_string(lxss_key_path, L"DefaultDistribution");
     if (!default_guid.has_value()) {
         return std::unexpected(default_guid.error());
     }
 
     DistroList result;
     for (const std::wstring& guid : *guids) {
-        KeyReader key{registry, std::wstring{lxss_key} + L"\\" + guid};
+        KeyReader key{registry, std::wstring{lxss_key_path} + L"\\" + guid};
 
         const auto name = key.text(L"DistributionName");
         const auto base_path = key.text(L"BasePath");

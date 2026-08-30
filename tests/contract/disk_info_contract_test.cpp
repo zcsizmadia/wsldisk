@@ -18,6 +18,7 @@
 #include "platform/virtual_disk.h"
 #include "platform/wsl_host.h"
 
+using wsldisk::model::DiskInfo;
 using wsldisk::model::Distro;
 using wsldisk::model::measure;
 using wsldisk::model::ProbeOptions;
@@ -80,20 +81,18 @@ TEST_CASE("measuring a real disk fills in every host-side field", "[contract][di
     const Win32VirtualDisk disks;
     const WslExeHost host;
 
-    const auto info = measure(disk.as_distro(), filesystem, disks, host, ProbeOptions{});
-
-    REQUIRE(info.has_value());
-    REQUIRE(info->virtual_size.has_value());
-    CHECK(*info->virtual_size == small_disk);
-    REQUIRE(info->file_size.has_value());
-    REQUIRE(info->size_on_disk.has_value());
-    REQUIRE(info->allocated_bytes.has_value());
-    REQUIRE(info->is_sparse.has_value());
+    const DiskInfo info = measure(disk.as_distro(), filesystem, disks, host, ProbeOptions{});
+    REQUIRE(info.virtual_size.has_value());
+    CHECK(*info.virtual_size == small_disk);
+    REQUIRE(info.file_size.has_value());
+    REQUIRE(info.size_on_disk.has_value());
+    REQUIRE(info.allocated_bytes.has_value());
+    REQUIRE(info.is_sparse.has_value());
 
     // A freshly created dynamic disk holds far less than its maximum.
-    CHECK(*info->file_size < small_disk);
+    CHECK(*info.file_size < small_disk);
     // Allocation cannot exceed the file it is inside.
-    CHECK(*info->allocated_bytes <= *info->file_size);
+    CHECK(*info.allocated_bytes <= *info.file_size);
 }
 
 TEST_CASE("a distribution that is not running is not started to measure it", "[contract][disk-info]") {
@@ -104,13 +103,11 @@ TEST_CASE("a distribution that is not running is not started to measure it", "[c
     const Win32VirtualDisk disks;
     const WslExeHost host;
 
-    const auto info = measure(disk.as_distro(), filesystem, disks, host, ProbeOptions{});
-
-    REQUIRE(info.has_value());
-    CHECK_FALSE(info->guest_used.has_value());
-    CHECK_FALSE(info->reclaimable().has_value());
+    const DiskInfo info = measure(disk.as_distro(), filesystem, disks, host, ProbeOptions{});
+    CHECK_FALSE(info.guest_used.has_value());
+    CHECK_FALSE(info.reclaimable().has_value());
     // And it said why, rather than leaving a silently blank column.
-    CHECK_FALSE(info->notes.empty());
+    CHECK_FALSE(info.notes.empty());
 }
 
 TEST_CASE("a missing disk leaves every host field unknown but still answers", "[contract][disk-info]") {
@@ -127,10 +124,8 @@ TEST_CASE("a missing disk leaves every host field unknown but still answers", "[
     missing.base_path = LR"(C:\wsldisk-does-not-exist)";
     missing.vhdx_path = LR"(C:\wsldisk-does-not-exist\ext4.vhdx)";
 
-    const auto info = measure(missing, filesystem, disks, host, ProbeOptions{});
-
-    REQUIRE(info.has_value());
-    CHECK_FALSE(info->file_size.has_value());
-    CHECK_FALSE(info->virtual_size.has_value());
-    CHECK_FALSE(info->notes.empty());
+    const DiskInfo info = measure(missing, filesystem, disks, host, ProbeOptions{});
+    CHECK_FALSE(info.file_size.has_value());
+    CHECK_FALSE(info.virtual_size.has_value());
+    CHECK_FALSE(info.notes.empty());
 }

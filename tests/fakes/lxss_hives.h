@@ -3,6 +3,7 @@
 #include <string>
 
 #include "fake_registry.h"
+#include "model/distro.h"
 
 /// Canned `Lxss` hives, reproducing the layouts measured in spike #4
 /// (`docs/RESEARCH.md`, registry section) on a real machine running WSL 2.7.8
@@ -15,7 +16,10 @@
 /// cannot identify sparse mode.
 namespace wsldisk::testing::hives {
 
-inline constexpr const wchar_t* lxss = L"Lxss";
+/// Taken from the model rather than repeated here. The two were once
+/// different literals, every unit test passed, and `list` could not find the
+/// key on a real machine.
+inline const std::wstring lxss{model::lxss_key()};
 
 /// Ubuntu as `wsl --install` writes it today: a bare `BasePath` under
 /// `%LOCALAPPDATA%\wsl\{GUID}`, `Modern=1`, and the guest OS recorded at import.

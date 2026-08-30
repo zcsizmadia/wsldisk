@@ -19,14 +19,20 @@ using wsldisk::platform::Win32Registry;
 
 TEST_CASE("enumerating the real Lxss key produces well-formed distributions", "[contract][distro]") {
     const Win32Registry registry;
-    const auto list = enumerate(registry);
 
-    // A machine with no WSL has no Lxss key at all, which is a failure to read
-    // rather than an empty list. Both are acceptable here; a crash is not.
-    if (!list.has_value()) {
-        CHECK_FALSE(list.error().message.empty());
+    // Distinguish "this machine has no WSL" from "we are reading the wrong
+    // key". Without this the test passed for weeks while the model looked for
+    // `Lxss` directly under HKCU rather than under
+    // Software\Microsoft\Windows\CurrentVersion, and `list` found nothing on
+    // a machine with four distributions.
+    if (!registry.subkeys(wsldisk::model::lxss_key()).has_value()) {
+        SUCCEED("WSL is not installed on this machine");
         return;
     }
+
+    const auto list = enumerate(registry);
+    INFO("the Lxss key exists, so enumeration must succeed");
+    REQUIRE(list.has_value());
 
     for (const Distro& distro : list->distros) {
         INFO("distribution " << distro.name);
