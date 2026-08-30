@@ -8,6 +8,7 @@ wsldisk_add_test_suite(wsldisk_unit_tests unit
     model/size_test.cpp
     model/text_test.cpp
     model/wsl_output_test.cpp
+    ops/runner_test.cpp
     platform/clock_test.cpp
     platform/filesystem_scan_test.cpp
     platform/filesystem_test.cpp
