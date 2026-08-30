@@ -69,6 +69,17 @@ integration suite imports.
   the `Win32Api` table in `platform/win32_api.h` so tests can inject failures
 - Every operation gets: `plan()` support for `--dry-run`, a unit test with fakes, an integration test
 - Every user-facing error carries a remedy
+- Run the whole lint job locally before pushing; it is the easiest check to fail
+  from a laptop because most of its tools are not part of a C++ toolchain:
+
+  ```powershell
+  .scriptsint.ps1 -Configure
+  ```
+
+  It runs clang-format, clang-tidy, actionlint, ruff and pytest, downloading the
+  pinned actionlint and ruff binaries on demand, and reports each as pass, fail or
+  skipped. markdownlint is skipped when the npm registry is unreachable.
+
 - `.clang-format` is authoritative; run before committing:
 
   ```powershell
