@@ -47,7 +47,9 @@ public:
     void add_file(const std::filesystem::path& path, File file) { files_[path.wstring()] = std::move(file); }
 
     void add_directory(const std::filesystem::path& path) {
-        files_[path.wstring()] = File{.is_directory = true};
+        File directory;
+        directory.is_directory = true;
+        files_[path.wstring()] = directory;
     }
 
     void set_volume(const std::filesystem::path& root, VolumeInfo info) {

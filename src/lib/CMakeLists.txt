@@ -24,6 +24,8 @@ add_library(wsldisk_lib STATIC
     version.h
     "${CMAKE_CURRENT_BINARY_DIR}/version.cpp"
 
+    model/disk_info.cpp
+    model/disk_info.h
     model/distro.cpp
     model/distro.h
     model/size.cpp
