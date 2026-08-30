@@ -122,6 +122,62 @@ Stopped distributions report no holder at all.
   VM still has it attached, run `wsl --shutdown`", while a real pid means "quit
   that application". Reporting "held by System" alone would be useless.
 
+### Shrink mechanism (issue #2) — answered, no helper distro needed
+
+`wsl --mount --vhd --bare` attaches a terminated distribution's VHDX into the
+running VM, **unelevated**, and any other running distribution can then fsck and
+resize it. A dedicated helper distribution is not required as a *mechanism*; it
+is only a convenience for when no other distribution is available.
+
+Method: import a target and a helper from the Alpine fixture, mark the target,
+`wsl --shutdown`, start only the helper, mount the target's disk bare, and work
+on it from the helper.
+
+| Step | Result |
+|---|---|
+| `wsl --mount <vhdx> --vhd --bare` | exit 0, **no administrator rights** |
+| Device it becomes | a new `/dev/sdX` (`/dev/sdf` in this run) |
+| `blkid` | `UUID="f954...6b76" TYPE="ext4"` |
+| `blockdev --getsize64` | 1099511627776 (1 TiB) |
+| `e2fsck -fn` | clean: `545/67108864 files (0.2% non-contiguous), 4497461/268435456 blocks` |
+| `resize2fs -P` | `Estimated minimum size of the filesystem: 2655555` blocks |
+| `wsl --unmount` | exit 0 |
+| Target afterwards | boots, marker file intact |
+
+**Finding the device: diff `/proc/partitions` across the mount.** Size is useless
+for identification — every WSL disk is 1 TiB by default, so this machine already
+had three identical 1 TiB devices before mounting a fourth. `blkid` confirms the
+filesystem afterwards, but only the diff says *which* device is ours.
+
+**`resize2fs -P` is the preflight `shrink` should use, and the floor is higher
+than expected.** On a nearly empty distribution whose disk is the default 1 TiB,
+the reported minimum was 2,655,555 blocks — about **10.9 GiB** at 4 KiB blocks —
+because the inode table was sized for a 1 TiB filesystem (67 million inodes).
+PLAN.md §4.3 proposed "guest used bytes + 10% margin" as the fit check; that
+would happily accept a target far below what `resize2fs` can actually produce.
+Ask the filesystem instead, and report the floor in the refusal message.
+
+**Guest tooling is not a given.** The stock Alpine minirootfs has `/sbin/apk`,
+`/sbin/blkid`, `/sbin/blockdev` and `/sbin/fstrim` — all busybox applets — but
+**no `e2fsck` and no `resize2fs`**. `apk add e2fsprogs-extra` installed them from
+inside WSL in a few seconds, so the network is available, but that makes `shrink`
+depend on the guest having a package manager and connectivity. The helper
+distribution wsldisk ships or imports must include e2fsprogs rather than assume it.
+
+**`wsl --exec` needs absolute paths.** Every probe first failed with
+`execvpe(blkid) failed: No such file or directory`, including `apk`, even though
+the child environment reports
+`PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:...`. The
+lookup does not use that PATH. `IWslHost` must therefore invoke `/sbin/fstrim`,
+`/sbin/e2fsck` and friends by absolute path — which is why the compaction spike,
+which happened to use `/sbin/fstrim`, worked first time.
+
+**Driving `wsl.exe` from PowerShell has two traps** worth knowing before the
+integration helpers are written: an embedded quote does not survive
+PowerShell → `wsl.exe` → `sh -c`, so guest commands should avoid `sh -c`
+altogether; and with `$ErrorActionPreference = 'Stop'`, the `Failed to translate`
+chatter `wsl.exe` writes to stderr is treated as a fatal native-command error.
+
 ### Registry layout (issue #4) — answered
 
 `HKCU\Software\Microsoft\Windows\CurrentVersion\Lxss` holds one `{GUID}` subkey
@@ -196,7 +252,6 @@ consider passing `WSLENV`/a clean environment.
 
 ### Still open
 
-- Shrink via `wsl --mount --vhd --bare` (#2).
 - `WslLaunch` as uid 0 with a non-root default user (#3) — the spikes above used
   `wsl.exe -u root --exec`, which works; the `wslapi.dll` path is untested.
 - Elevation relaunch and named-pipe IPC (#6) — now lower priority, since the

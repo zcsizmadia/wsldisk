@@ -118,13 +118,15 @@ Equivalent to `wsl --manage <distro> --resize <size>` in WSL ≥ 2.5 but also fi
 
 `shrink <distro> --to <size>`:
 
-1. Preflight: guest used bytes + safety margin (default 10%, min 2 GB) ≤ target, else refuse.
-2. Start distro. `e2fsck -f -y` requires the fs unmounted — root is mounted. Approach: attach the VHDX **read-write** to a *helper* distro (or the same distro via `wsl --mount --vhd --bare`) while the owning distro is terminated, then run `e2fsck -f` and `resize2fs <dev> <size>` from there. This is the same mechanism `wsl --mount --vhd` uses and needs no admin when done through `wsl.exe --mount`; direct `AttachVirtualDisk` path needs admin.
-3. Detach. `ResizeVirtualDisk` with `RESIZE_VIRTUAL_DISK_FLAG_RESIZE_TO_SMALLEST_SAFE_VIRTUAL_SIZE` or explicit size (never below the fs size; the API refuses unsafe shrink unless `ALLOW_UNSAFE_VIRTUAL_SIZE`, which we never pass).
+1. Preflight: ask the filesystem, not the byte count. Mount the disk (step 2) and run `resize2fs -P` to get the true minimum, then refuse anything below it and say what the floor is. "Guest used + 10%" is not a safe check: on a nearly empty distribution with the default 1 TiB disk the measured floor was ~10.9 GiB, because the inode table was sized for 1 TiB (67 million inodes). See [docs/RESEARCH.md](docs/RESEARCH.md).
+2. Terminate the distro, then `wsl --mount <vhdx> --vhd --bare` to attach it into the running VM and run `e2fsck -f -y` and `resize2fs <dev> <size>` from **any** other running distribution. Measured: this works unelevated, and no dedicated helper distro is needed as a mechanism. The mounted disk appears as a brand-new `/dev/sdX` — find it by diffing `/proc/partitions` across the mount, never by size, since every WSL disk is 1 TiB by default. Direct `AttachVirtualDisk` would need admin; `wsl.exe --mount` does not.
+3. Detach with `wsl --unmount`. `ResizeVirtualDisk` with `RESIZE_VIRTUAL_DISK_FLAG_RESIZE_TO_SMALLEST_SAFE_VIRTUAL_SIZE` or explicit size (never below the fs size; the API refuses unsafe shrink unless `ALLOW_UNSAFE_VIRTUAL_SIZE`, which we never pass).
 4. Compact (shrink leaves the file large otherwise).
 5. Verify by mounting read-only and running `e2fsck -n`.
 
-Helper distro: a tiny built-in busybox/Alpine rootfs (~5 MB) that `wsldisk` can import on demand as `wsldisk-helper` and remove afterwards; opt-in with `--helper` or auto if no other distro is available. Alternative: use any other registered running distro the user names with `--via <distro>`.
+Guest tooling: `e2fsck` and `resize2fs` are **not** present in a stock Alpine minirootfs — it ships busybox, which provides `blkid`, `blockdev` and `fstrim` but not e2fsprogs. Whichever distribution hosts the operation must have them; `wsldisk` checks first and says which package to install rather than failing halfway through a resize.
+
+Helper distro: needed only when no other distribution is available to host the mount, or when the user prefers not to involve one. A tiny Alpine rootfs imported on demand as `wsldisk-helper` and removed afterwards, **with e2fsprogs baked in** so it does not depend on the guest having network access; opt-in with `--helper`, or `--via <distro>` to name an existing one.
 
 ### 4.4 `move` (M2)
 
@@ -319,7 +321,6 @@ Full design in [docs/CI.md](docs/CI.md): `ci.yml` (lint, MSVC+clang-cl × x64+ar
 
 Still open:
 
-- Should `shrink` require the helper distro, or is `wsl --mount --vhd --bare` into the *same* distro (after terminate) sufficient in all WSL ≥ 2.0 versions? ([#2](https://github.com/zcsizmadia/wsldisk/issues/2))
 - Can `WslLaunch` reliably run as uid 0 when the distro's default user is non-root and `sudo` isn't passwordless? The spikes used `wsl.exe -u root --exec`, which works; the `wslapi.dll` path is untested. ([#3](https://github.com/zcsizmadia/wsldisk/issues/3))
 - Which `Flags` bit marks sparse mode — no distribution on the test machine had it set, so `list` reads sparseness from the file attributes instead. ([#4](https://github.com/zcsizmadia/wsldisk/issues/4))
 - Name collision check: `wsldisk` on winget/scoop/crates — confirm free before first release.
@@ -328,6 +329,7 @@ Answered in M0, measurements in [docs/RESEARCH.md](docs/RESEARCH.md):
 
 - **Does unattached `CompactVirtualDisk` reclaim what `fstrim` freed?** Yes, completely, in 0.2 s and with no administrator rights — but only through the V2 open parameters (D10).
 - **Is `wsl --terminate` enough to release the disk?** No. The utility VM holds it for as long as any distribution runs (D9).
+- **Does `shrink` need a helper distribution?** Not as a mechanism: `wsl --mount --vhd --bare` works unelevated and any other running distribution can host the fsck and resize. A helper is a convenience for when none is available, and it must ship e2fsprogs.
 - **ARM64 CI availability.** GitHub's hosted `windows-11-arm` runners are free for public repositories, so the arm64 legs build and run their tests natively.
 
 ## 9. Success metrics (12 months after 1.0)

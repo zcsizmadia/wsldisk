@@ -79,10 +79,16 @@ administrator rights (PLAN.md D10).
 ### shrink
 
 ```text
-preflight(fit) ──► terminate ──► wsl --mount --vhd --bare (via helper/other distro)
+terminate ──► wsl --mount --vhd --bare (any other running distro will do)
+   ──► find the new /dev/sdX by diffing /proc/partitions
+   ──► resize2fs -P ──► refuse if the target is below that floor
    ──► e2fsck -f -y ──► resize2fs <dev> <size> ──► wsl --unmount
    ──► ResizeVirtualDisk(size) ──► CompactVirtualDisk ──► mount RO + e2fsck -n ──► unmount
 ```
+
+The fit check comes from `resize2fs -P`, not from the guest byte count: on a
+default 1 TiB disk the floor is around 11 GiB however little is stored, because
+the inode table was sized for 1 TiB.
 
 ### move
 
@@ -100,6 +106,7 @@ preflight(fs, space, lock) ──► terminate ──► sparse-aware copy(+prog
 - Actual on-disk bytes: `GetCompressedFileSizeW` (accounts for NTFS sparse/compressed); sparseness: `FILE_ATTRIBUTE_SPARSE_FILE` + `FSCTL_QUERY_ALLOCATED_RANGES`.
 - Registry: `HKCU\Software\Microsoft\Windows\CurrentVersion\Lxss\{GUID}` values `DistributionName` (REG_SZ), `BasePath` (REG_SZ, may be `\\?\C:\...`), `Version` (DWORD 1|2), `Flags` (DWORD), `DefaultUid` (DWORD), `VhdFileName` (REG_SZ, newer), `State`. `Lxss\DefaultDistribution` (REG_SZ GUID).
 - `wslapi.dll`: `WslLaunch(distro, cmd, useCwd, stdin, stdout, stderr, &process)` — runs as the distro's default uid; for root use `wsl.exe -d <d> -u root --exec ...` and read UTF-8 stdout.
+- **`wsl --exec` does not search PATH**: `--exec blkid` fails with `execvpe(blkid) failed` even though the child environment has `/sbin` on PATH. Always pass an absolute path (`/sbin/fstrim`, `/sbin/e2fsck`). Guest tooling is not a given either — a stock Alpine rootfs has busybox `blkid`/`blockdev`/`fstrim` but no e2fsprogs.
 - `wsl.exe` output is UTF-16LE (often with BOM) and localized. Parse only `--list --verbose`-style tabular output by column, never by header text; prefer registry.
 
 ## Error handling
