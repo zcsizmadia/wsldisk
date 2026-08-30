@@ -33,7 +33,7 @@ Goal: de-risk the unknowns, have a compiling skeleton and CI.
 **Technical spikes** (throwaway code under `spikes/`, results recorded in `docs/RESEARCH.md`)
 
 - [x] `CompactVirtualDisk` unattached vs attached-RO: measure reclaimed bytes after `fstrim` ([#1](https://github.com/zcsizmadia/wsldisk/issues/1))
-- [ ] Confirm `ResizeVirtualDisk` shrink path + `resize2fs` via `wsl --mount --vhd --bare` ([#2](https://github.com/zcsizmadia/wsldisk/issues/2))
+- [x] Confirm `ResizeVirtualDisk` shrink path + `resize2fs` via `wsl --mount --vhd --bare` ([#2](https://github.com/zcsizmadia/wsldisk/issues/2))
 - [ ] `WslLaunch` as uid 0 with a non-root default user ([#3](https://github.com/zcsizmadia/wsldisk/issues/3))
 - [x] Registry layout across WSL inbox 1.x / Store 2.x ([#4](https://github.com/zcsizmadia/wsldisk/issues/4))
 - [x] Docker Desktop VHDX lock behaviour when Docker is "stopped" vs quit ([#5](https://github.com/zcsizmadia/wsldisk/issues/5))
