@@ -35,6 +35,14 @@ struct DiskInfo {
     std::optional<std::uint64_t> allocated_bytes;
     std::optional<bool> is_sparse;
 
+    /// Geometry, from the same call as `virtual_size` and absent for the same
+    /// reason when the disk is held open.
+    std::optional<std::uint32_t> block_size;
+    std::optional<std::uint32_t> sector_size;
+    /// Set only for a differencing disk, which no WSL distribution is unless
+    /// someone built a chain by hand.
+    std::wstring parent_path;
+
     /// What the guest filesystem reports. Only measured when the distribution
     /// is already running, or when the caller explicitly asked -- nothing here
     /// starts a distribution in order to measure it.

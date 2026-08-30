@@ -80,6 +80,10 @@ std::wstring_view lxss_key() {
     return lxss_key_path;
 }
 
+std::wstring registry_key_for(const Distro& distro) {
+    return std::wstring{lxss_key_path} + L"\\" + to_wide(distro.guid);
+}
+
 std::wstring strip_extended_prefix(std::wstring_view path) {
     // The UNC form has to be checked first: it starts with the plain prefix, and
     // stripping only that would leave `UNC\server\share`, which resolves to
@@ -104,9 +108,13 @@ const Distro* DistroList::default_distro() const noexcept {
     return found == distros.end() ? nullptr : &*found;
 }
 
+bool Distro::find_matches(std::string_view wanted) const noexcept {
+    return equals_ignoring_case(name, wanted);
+}
+
 const Distro* DistroList::find(std::string_view name) const noexcept {
-    const auto found = std::ranges::find_if(
-        distros, [name](const Distro& distro) { return equals_ignoring_case(distro.name, name); });
+    const auto found =
+        std::ranges::find_if(distros, [name](const Distro& distro) { return distro.find_matches(name); });
     return found == distros.end() ? nullptr : &*found;
 }
 
@@ -167,6 +175,7 @@ Result<DistroList> enumerate(const IRegistry& registry) {
                    .guid = to_utf8(guid),
                    .version = version,
                    .base_path = *base_path,
+                   .vhd_file_name = vhd_file_name.value_or(std::wstring{}),
                    .vhdx_path = vhdx_path_for(*base_path, vhd_file_name.value_or(std::wstring{})),
                    .default_uid = default_uid,
                    .flags = flags,

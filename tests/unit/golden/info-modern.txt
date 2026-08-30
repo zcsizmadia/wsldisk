@@ -1,0 +1,24 @@
+name:          Ubuntu
+guid:          {4d1297e9-bac4-4da1-9867-a2ab591e9581}
+registry key:  Software\Microsoft\Windows\CurrentVersion\Lxss\{4d1297e9-bac4-4da1-9867-a2ab591e9581}
+wsl version:   2
+default:       yes
+state:         running
+base path:     C:\Users\example\AppData\Local\wsl\{4d1297e9-bac4-4da1-9867-a2ab591e9581}
+vhd file name: ext4.vhdx
+disk path:     C:\Users\example\AppData\Local\wsl\{4d1297e9-bac4-4da1-9867-a2ab591e9581}\ext4.vhdx
+modern layout: yes
+flavor:        ubuntu
+os version:    24.04
+default uid:   1000
+flags:         15 (interop, append-nt-path, drive-mounting, undocumented(0x8))
+virtual size:  1.0 TiB
+file size:     14.0 GiB
+size on disk:  9.0 GiB
+allocated:     9.0 GiB
+sparse:        yes
+block size:    2.0 MiB
+sector size:   512
+guest used:    8.0 GiB
+guest free:    1016.0 GiB
+reclaimable:   1.0 GiB

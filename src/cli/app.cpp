@@ -9,6 +9,7 @@
 #include <vector>
 
 #include "errors.h"
+#include "info_command.h"
 #include "list_command.h"
 #include "logger.h"
 #include "options.h"
@@ -45,6 +46,9 @@ int run(std::span<const std::string> args, std::ostream& out, std::ostream& err)
     ListOptions list_options;
     add_list_command(app, options, list_options);
 
+    InfoOptions info_options;
+    add_info_command(app, options, info_options);
+
     // CLI11 parses in reverse order, so hand it a reversed copy of argv-style input.
     std::vector<std::string> reversed(args.rbegin(), args.rend());
 
@@ -63,7 +67,7 @@ int run(std::span<const std::string> args, std::ostream& out, std::ostream& err)
 
     StreamLogger logger{err, options.verbose, options.log_file};
 
-    if (app.got_subcommand("list")) {
+    if (app.got_subcommand("list") || app.got_subcommand("info")) {
         // The real implementations. Every one is an interface, which is what
         // lets the unit tests drive the same code with fakes.
         const platform::Win32Registry registry;
@@ -73,6 +77,9 @@ int run(std::span<const std::string> args, std::ostream& out, std::ostream& err)
         const Services services{
             .registry = &registry, .filesystem = &filesystem, .disks = &disks, .host = &host};
 
+        if (app.got_subcommand("info")) {
+            return run_info(services, info_options, options, logger, out, err);
+        }
         return run_list(services, list_options, options, logger, out, err);
     }
 
