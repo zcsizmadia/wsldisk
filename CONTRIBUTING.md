@@ -96,6 +96,17 @@ integration suite imports.
   LLVM's `bin` ahead of Visual Studio's. The compile database clang-tidy needs is
   refreshed automatically when it no longer lists every source.
 
+- **Run AddressSanitizer before pushing.** It no longer runs on pull requests,
+  so this is the first and only place it happens before merge, and it finds what
+  the ordinary builds cannot -- a dangling capture that every other
+  configuration happily passed, for instance:
+
+  ```powershell
+  cmake --preset x64-asan
+  cmake --build build/x64-asan --config Debug
+  ctest --test-dir build/x64-asan -C Debug -L "unit|contract" --output-on-failure
+  ```
+
 - `.clang-format` is authoritative; run before committing:
 
   ```powershell

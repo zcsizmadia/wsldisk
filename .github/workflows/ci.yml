@@ -237,8 +237,13 @@ jobs:
           fail_ci_if_error: false
           token: ${{ secrets.CODECOV_TOKEN }}
 
+  # main only, like lint-native. Run it locally before pushing -- see
+  # CONTRIBUTING.md. This is the check most likely to find something the other
+  # builds cannot: it caught a stack-use-after-scope in #44 that MSVC Debug and
+  # Release, clang-cl Debug and Release, and the coverage build all passed.
   asan:
     name: AddressSanitizer
+    if: github.event_name != 'pull_request'
     runs-on: windows-2025
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
