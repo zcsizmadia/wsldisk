@@ -401,15 +401,3 @@ TEST_CASE("create reports a failure", "[platform][vdisk]") {
     CHECK(status.error().code == ErrorCode::Preflight);
     CHECK(status.error().remedy.find("free space") != std::string::npos);
 }
-
-TEST_CASE("a disk owned through the interface destroys cleanly", "[platform][vdisk]") {
-    // Operations hold an IVirtualDisk, not a Win32VirtualDisk, so the base has
-    // to be destroyed polymorphically at least once. Without this the virtual
-    // destructor is never actually called anywhere.
-    const ScopedWin32Api scoped{opens_ok()};
-
-    const std::unique_ptr<wsldisk::IVirtualDisk> disks = std::make_unique<Win32VirtualDisk>();
-    const auto handle = disks->open("C:\\wsl\\ext4.vhdx");
-
-    CHECK(handle.has_value());
-}

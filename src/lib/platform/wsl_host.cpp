@@ -173,30 +173,30 @@ Result<WslRawResult> run_wsl(const std::vector<std::wstring>& arguments, std::ch
 
     WslRawResult result;
     std::chrono::milliseconds remaining = timeout;
-    // The loop ends on its own once the child is signalled, so both edges of
-    // the condition are real. Draining happens on every pass: a child that
-    // fills a pipe buffer blocks until the parent reads it, and a child blocked
-    // that way would never reach the exit this loop is waiting for.
-    DWORD waited = WAIT_TIMEOUT;
-    while (waited != WAIT_OBJECT_0) {
+    // Draining happens on every pass: a child that fills a pipe buffer blocks
+    // until the parent reads it, and a child blocked that way would never reach
+    // the exit this loop is waiting for.
+    while (true) {  // LCOV_EXCL_BR_LINE -- every exit is a return or a break
         drain(output.read.get(), result.standard_output);
         drain(errors.read.get(), result.standard_error);
 
         const auto slice =
             remaining.count() < poll_slice_ms ? static_cast<DWORD>(remaining.count()) : poll_slice_ms;
-        waited = win32().wait_for_single_object(process_handle.get(), slice);
+        const DWORD waited = win32().wait_for_single_object(process_handle.get(), slice);
         if (waited == WAIT_FAILED) {
             return std::unexpected(error_from_win32(win32().get_last_error(), "wait for wsl.exe to finish"));
         }
-        if (waited != WAIT_OBJECT_0) {
-            remaining -= std::chrono::milliseconds{slice};
-            if (remaining <= std::chrono::milliseconds::zero()) {
-                std::ignore = win32().terminate_process(process_handle.get(), 1);
-                return fail(ErrorCode::Generic,
-                            std::format("wsl.exe did not finish within {} ms", timeout.count()),
-                            "re-run with a longer timeout, or check whether WSL is responding with "
-                            "`wsl --status`");
-            }
+        if (waited == WAIT_OBJECT_0) {
+            break;
+        }
+
+        remaining -= std::chrono::milliseconds{slice};
+        if (remaining <= std::chrono::milliseconds::zero()) {
+            std::ignore = win32().terminate_process(process_handle.get(), 1);
+            return fail(ErrorCode::Generic,
+                        std::format("wsl.exe did not finish within {} ms", timeout.count()),
+                        "re-run with a longer timeout, or check whether WSL is responding with "
+                        "`wsl --status`");
         }
     }
 

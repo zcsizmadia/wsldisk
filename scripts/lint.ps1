@@ -7,8 +7,8 @@
     tools are not part of a normal C++ toolchain. This script runs the same set so
     a failure costs seconds instead of a CI round trip:
 
-        clang-format   from the Visual Studio LLVM tools or a standalone LLVM
-        clang-tidy     ditto -- must be the version pinned in CI, not VS's
+        clang-format   the standalone LLVM pinned in CI, not Visual Studio's
+        clang-tidy     ditto -- both are checked, and a mismatch is a failure
         actionlint     downloaded on demand, pinned
         ruff           downloaded on demand, pinned
         pytest         for the coverage gate's own tests
@@ -18,12 +18,14 @@
     if any of them failed.
 
 .PARAMETER Configure
-    Re-run `cmake --preset x64-lint` first. clang-tidy needs the compile database;
-    pass this after adding or removing a source file.
+    Re-run `cmake --preset x64-lint` before anything else. Rarely needed: the
+    compile database clang-tidy uses is refreshed automatically when it no longer
+    lists every source. Use this to pick up a change the file list does not show,
+    such as an edit to the preset itself.
 
 .EXAMPLE
     . .\scripts\dev-shell.ps1
-    .\scripts\lint.ps1 -Configure
+    .\scripts\lint.ps1
 #>
 [CmdletBinding()]
 param(
@@ -42,6 +44,13 @@ New-Item -ItemType Directory -Force -Path $toolCache | Out-Null
 
 $results = [ordered]@{}
 
+# A check that throws is normally reported as SKIPPED: it could not run, which is
+# what an unreachable download or a missing optional tool looks like. Some
+# conditions must not be waved through that way -- the wrong clang-tidy would
+# report findings that do not match CI -- so a message with this prefix is a
+# deliberate failure rather than an inability to run.
+$lintFailurePrefix = 'lint-failure: '
+
 function Invoke-Check {
     param([string]$Name, [scriptblock]$Body)
 
@@ -55,8 +64,14 @@ function Invoke-Check {
             $script:results[$Name] = 'pass'
         }
     } catch {
-        Write-Host $_.Exception.Message -ForegroundColor Yellow
-        $script:results[$Name] = 'SKIPPED'
+        $message = $_.Exception.Message
+        if ($message.StartsWith($script:lintFailurePrefix)) {
+            Write-Host $message.Substring($script:lintFailurePrefix.Length) -ForegroundColor Red
+            $script:results[$Name] = 'FAIL'
+        } else {
+            Write-Host $message -ForegroundColor Yellow
+            $script:results[$Name] = 'SKIPPED'
+        }
     }
 }
 
@@ -78,12 +93,87 @@ function Get-PinnedTool {
     return $found.FullName
 }
 
+function Get-PinnedLlvmVersion {
+    <#
+    .SYNOPSIS
+        The LLVM version CI installs, read from the toolchain action.
+
+    .DESCRIPTION
+        There is one source of truth, the same way the vcpkg baseline is read
+        from the manifest rather than repeated here.
+    #>
+    $action = Join-Path $repoRoot '.github/actions/setup-toolchain/action.yml'
+    $match = Select-String -Path $action -Pattern "^\s*default:\s*'([0-9]+\.[0-9]+\.[0-9]+)'" |
+        Select-Object -First 1
+    if (-not $match) { throw "could not read the pinned LLVM version from $action" }
+    return $match.Matches[0].Groups[1].Value
+}
+
+function Assert-PinnedTool {
+    <#
+    .SYNOPSIS
+        Fails unless the named LLVM tool is the version CI pins.
+
+    .DESCRIPTION
+        Visual Studio ships its own clang-format and clang-tidy and puts them on
+        PATH ahead of a standalone LLVM. They are several major versions behind:
+        clang-format reformats differently, so a file that is clean locally fails
+        in CI, and VS's clang-tidy has been seen to crash outright inside MSVC's
+        <format>. Either way the local run stops meaning anything, so this is a
+        failure rather than something to warn about.
+    #>
+    param([string]$Name)
+
+    $tool = Get-Command $Name -ErrorAction SilentlyContinue
+    if (-not $tool) { throw "$Name not found on PATH" }
+
+    $pinned = Get-PinnedLlvmVersion
+    $reported = & $Name --version | Select-String -Pattern 'version\s+([0-9]+\.[0-9]+\.[0-9]+)'
+    if (-not $reported) { throw "could not read the version of $($tool.Source)" }
+    $actual = $reported.Matches[0].Groups[1].Value
+
+    if ($actual -ne $pinned) {
+        throw ($script:lintFailurePrefix +
+               "$Name $actual at $($tool.Source) is not the pinned $pinned. " +
+               "Put the pinned LLVM's bin directory ahead of Visual Studio's on PATH.")
+    }
+}
+
+function Test-StaleCompileDatabase {
+    <#
+    .SYNOPSIS
+        Whether the compile database is missing or no longer lists every source.
+
+    .DESCRIPTION
+        clang-tidy falls back to default flags for a file the database does not
+        name, which for this project means no C++23 and no include paths -- so
+        it reports a cascade of nonsense ("no template named 'Result'", "method
+        can be made static" on a virtual override) that has nothing to do with
+        the code. Reconfiguring is cheaper than reading those.
+    #>
+    param([string[]]$Sources)
+
+    $database = Join-Path $repoRoot 'build/x64-lint/compile_commands.json'
+    if (-not (Test-Path $database)) { return $true }
+
+    $known = [System.Collections.Generic.HashSet[string]]::new(
+        [System.StringComparer]::OrdinalIgnoreCase)
+    foreach ($entry in (Get-Content $database -Raw | ConvertFrom-Json)) {
+        [void]$known.Add([System.IO.Path]::GetFullPath($entry.file))
+    }
+    foreach ($source in $Sources) {
+        if (-not $known.Contains([System.IO.Path]::GetFullPath($source))) { return $true }
+    }
+    return $false
+}
+
 Push-Location $repoRoot
 try {
     $sources = Get-ChildItem -Recurse -Path src, tests -Include *.cpp, *.h, *.in |
         ForEach-Object { $_.FullName }
 
     Invoke-Check 'clang-format' {
+        Assert-PinnedTool 'clang-format'
         clang-format --dry-run --Werror @sources
     }
 
@@ -92,10 +182,15 @@ try {
     }
 
     Invoke-Check 'clang-tidy' {
-        if (-not (Test-Path 'build/x64-lint/compile_commands.json')) {
-            throw "no compile database; re-run with -Configure"
-        }
+        Assert-PinnedTool 'clang-tidy'
+
         $cpp = Get-ChildItem -Recurse -Path src -Include *.cpp | ForEach-Object { $_.FullName }
+        if (Test-StaleCompileDatabase $cpp) {
+            Write-Host "  compile database is stale; reconfiguring ..."
+            cmake --preset x64-lint | Out-Null
+            if ($LASTEXITCODE -ne 0) { throw "cmake --preset x64-lint failed" }
+        }
+
         clang-tidy -p build/x64-lint --extra-arg=-Wno-unused-command-line-argument @cpp
     }
 
