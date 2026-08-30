@@ -5,7 +5,9 @@ _Last updated: 2026-08-29_
 ## 1. Problem statement
 
 WSL2 stores each distribution's root filesystem in a dynamically expanding VHDX
-(`%LOCALAPPDATA%\Packages\<pkg>\LocalState\ext4.vhdx`, or a custom `--location`).
+(`%LOCALAPPDATA%\wsl\{GUID}\ext4.vhdx` on current WSL, the legacy
+`%LOCALAPPDATA%\Packages\<pkg>\LocalState\ext4.vhdx` for MSIX-packaged installs,
+or a custom `--location`; measured in [docs/RESEARCH.md](docs/RESEARCH.md)).
 Docker Desktop, Rancher Desktop and Podman Desktop do the same for their data volumes.
 These files:
 
@@ -51,7 +53,7 @@ VHDX files without knowing it.
 → `wsldisk list`, `wsldisk compact --all`.
 
 **Docker Desktop user** — "`docker system prune` freed 60 GB but Windows still shows it used."
-→ `wsldisk compact docker-desktop-data` (Docker Desktop's VHDX is discovered automatically).
+→ `wsldisk compact docker-desktop` (Docker Desktop's distributions are discovered from the registry; the name has changed between Docker versions, so it is never hardcoded).
 
 **Power user with a small SSD** — "Move Ubuntu to D: without re-importing and losing my default user."
 → `wsldisk move Ubuntu D:\WSL`.
@@ -78,7 +80,7 @@ Sources:
 
 - Registry `HKCU\Software\Microsoft\Windows\CurrentVersion\Lxss\{GUID}`: `DistributionName`, `BasePath`, `Version`, `Flags`, `DefaultUid`, `VhdFileName` (present in newer WSL).
 - `Lxss\DefaultDistribution` for the default marker.
-- Docker Desktop / Rancher / Podman: they register as regular distros (`docker-desktop`, `docker-desktop-data`, `rancher-desktop-data`, `podman-machine-*`), so no special casing beyond labeling.
+- Docker Desktop / Rancher / Podman: they register as regular distros (`docker-desktop`, `rancher-desktop`, `rancher-desktop-data`, `podman-machine-*`; older Docker Desktop also had `docker-desktop-data`), so no special casing beyond labeling. Which appliance distros exist is version-dependent and comes from the registry, never from a hardcoded list.
 - Optional `--scan <dir>` to find orphaned `*.vhdx` not referenced by any registry entry.
 
 Columns: name, default marker, WSL version, state (running/stopped via `wsl -l -v` or `WslIsDistributionRegistered`+running check), VHDX path, virtual (max) size, actual size on disk (`GetCompressedFileSize` — respects NTFS sparse/compressed), guest used/free (via `df` in the distro, only if running or `--probe`), sparse flag (registry `Flags` bit / `FSCTL_QUERY_ALLOCATED_RANGES`), reclaimable estimate = actual − guest used.
@@ -90,16 +92,17 @@ Reclaim unused space in the VHDX without changing its maximum size.
 Workflow:
 
 1. Preflight: distro exists, is WSL2, VHDX not currently attached (check via `GetVirtualDiskPhysicalPath` / open with exclusive access), enough free space on host volume for the operation.
-2. Unless `--no-trim`: start distro, run `fstrim -av` (or `fstrim /`) as root via `WslLaunch` with uid 0. Record output. This converts deleted-but-allocated ext4 blocks into discards that zero/unmap the VHDX blocks.
-3. `wsl --terminate <distro>` (only this distro — do not `--shutdown` others unless `--all`). Wait for the VHDX handle to become available (poll with timeout).
-4. Open the VHDX with `OpenVirtualDisk` (`VIRTUAL_DISK_ACCESS_METAOPS`), attach read-only with `ATTACH_VIRTUAL_DISK_FLAG_READ_ONLY | NO_DRIVE_LETTER | NO_LOCAL_HOST` when elevated (enables the "full" compaction mode that consults the file system bitmap); otherwise fall back to unattached `CompactVirtualDisk` (zero-block mode, still effective after `fstrim`).
+2. Unless `--no-trim`: start distro, run `fstrim /` as root. **Not `fstrim -av`** — busybox, and therefore Alpine and most appliance distros, rejects `-a`; `-v` is attempted and its failure tolerated. Its "bytes trimmed" figure reports the whole free extent of the virtual disk, not what compaction will reclaim, so report before/after file sizes instead. Record output. This converts deleted-but-allocated ext4 blocks into discards that zero/unmap the VHDX blocks.
+3. `wsl --terminate <distro>`, then wait for the VHDX handle to become available. **Terminating the distribution is not enough on its own** (Decision D9): the WSL utility VM keeps every attached disk open for as long as *any* distribution runs, and measurement shows the handle is never released on a timer — it survived five minutes of polling. If the disk is still locked, exit 11 naming the distributions keeping the VM alive and tell the user to re-run with `--shutdown`; only that flag makes wsldisk call `wsl --shutdown`, which does release it.
+4. Open the VHDX with `OpenVirtualDisk` using **`OPEN_VIRTUAL_DISK_VERSION_2` parameters and `VIRTUAL_DISK_ACCESS_NONE`**, then `CompactVirtualDisk` unattached. This needs no administrator rights. Do **not** use `VIRTUAL_DISK_ACCESS_METAOPS`: with V1 or null parameters the handle opens and the compaction then fails with `ERROR_ACCESS_DENIED`, and combining `METAOPS` with V2 parameters fails to open at all (`ERROR_INVALID_PARAMETER`). Both measured in [docs/RESEARCH.md](docs/RESEARCH.md).
+   Attaching read-only with `ATTACH_VIRTUAL_DISK_FLAG_READ_ONLY | NO_DRIVE_LETTER | NO_LOCAL_HOST` (admin only) enables the "full" mode that consults the filesystem bitmap. It is an opt-in for disks that were never trimmed, not the default: after `fstrim` the unattached path already reclaimed 100% of the freed space.
 5. `CompactVirtualDisk` with `OVERLAPPED` + `GetVirtualDiskOperationProgress` polling → progress bar.
 6. Detach, close. Report before/after actual size, elapsed, method used.
 7. Optionally restart the distro if it was running before (`--restart`).
 
-Flags: `--all`, `--no-trim`, `--dry-run`, `--json`, `--file <path.vhdx>` (compact an arbitrary VHDX, e.g. detached Docker volume), `--restart`.
+Flags: `--all`, `--no-trim`, `--dry-run`, `--json`, `--file <path.vhdx>` (compact an arbitrary VHDX, e.g. detached Docker volume), `--restart`, `--shutdown` (permit `wsl --shutdown` when other distributions hold the disk; see D9).
 
-Non-elevated behavior: `CompactVirtualDisk` on an unattached disk works without admin. Attach requires admin. Strategy: attempt unelevated; if attach is required for full mode and `--elevate` is set (or user is prompted in interactive mode), relaunch self with `runas` and stream results back through a named pipe.
+Non-elevated behaviour: `CompactVirtualDisk` on an unattached disk works without admin — measured, see D10 and docs/RESEARCH.md. Attach requires admin, and is only worth it for a disk that was never trimmed. Strategy: attempt unelevated; if attach is required for full mode and `--elevate` is set (or user is prompted in interactive mode), relaunch self with `runas` and stream results back through a named pipe.
 
 ### 4.3 `shrink` / `grow` (M2)
 
@@ -309,14 +312,23 @@ Full design in [docs/CI.md](docs/CI.md): `ci.yml` (lint, MSVC+clang-cl × x64+ar
 | D6 | `copy` snapshot backend default; differencing disks experimental | Simplicity and safety first |
 | D7 | MIT license | Maximum adoption; compatible with WIL (MIT) and all chosen deps |
 | D8 | WSL2 only; WSL1 is detect-and-refuse | No VHDX to manage; legacy and shrinking user base; avoids a second code path and test-matrix leg for zero functional gain |
+| D9 | `compact` never stops another distribution on its own: it refuses, names the ones holding the VM open, and requires `--shutdown` | Terminating the target is not enough — the utility VM holds every attached disk for as long as any distribution runs (measured: still locked after 300 s). Shutting everything down silently would kill unrelated work, including Docker Desktop containers, so the user opts in |
+| D10 | Unattached `CompactVirtualDisk` via `OPEN_VIRTUAL_DISK_VERSION_2` + `VIRTUAL_DISK_ACCESS_NONE` is the default path; attach-read-only is an opt-in | Measured: after `fstrim` the unattached path reclaimed 100% of the freed space in 0.2 s with no administrator rights. The `METAOPS` shape the plan originally specified opens the handle and then fails the compaction with `ERROR_ACCESS_DENIED` |
 
 ## 8. Open questions
 
-- Should `shrink` require the helper distro, or is `wsl --mount --vhd --bare` into the *same* distro (after terminate) sufficient in all WSL ≥ 2.0 versions? Prototype in M0.
-- Can `WslLaunch` reliably run as uid 0 when the distro's default user is non-root and `sudo` isn't passwordless? (It takes a `useCurrentWorkingDirectory` and uses the default uid — need `wsl -u root` fallback.)
-- Does `CompactVirtualDisk` on an unattached disk reclaim blocks zeroed by `fstrim`'s discard, or does WSL translate discard to `FSCTL_SET_ZERO_DATA`/unmap such that nothing further is needed? Measure in M0.
-- ARM64 CI availability.
+Still open:
+
+- Should `shrink` require the helper distro, or is `wsl --mount --vhd --bare` into the *same* distro (after terminate) sufficient in all WSL ≥ 2.0 versions? ([#2](https://github.com/zcsizmadia/wsldisk/issues/2))
+- Can `WslLaunch` reliably run as uid 0 when the distro's default user is non-root and `sudo` isn't passwordless? The spikes used `wsl.exe -u root --exec`, which works; the `wslapi.dll` path is untested. ([#3](https://github.com/zcsizmadia/wsldisk/issues/3))
+- Which `Flags` bit marks sparse mode — no distribution on the test machine had it set, so `list` reads sparseness from the file attributes instead. ([#4](https://github.com/zcsizmadia/wsldisk/issues/4))
 - Name collision check: `wsldisk` on winget/scoop/crates — confirm free before first release.
+
+Answered in M0, measurements in [docs/RESEARCH.md](docs/RESEARCH.md):
+
+- **Does unattached `CompactVirtualDisk` reclaim what `fstrim` freed?** Yes, completely, in 0.2 s and with no administrator rights — but only through the V2 open parameters (D10).
+- **Is `wsl --terminate` enough to release the disk?** No. The utility VM holds it for as long as any distribution runs (D9).
+- **ARM64 CI availability.** GitHub's hosted `windows-11-arm` runners are free for public repositories, so the arm64 legs build and run their tests natively.
 
 ## 9. Success metrics (12 months after 1.0)
 

@@ -66,9 +66,15 @@ undone (compaction, resize2fs shrink) are ordered last and preceded by a verify 
 ### compact
 
 ```text
-preflight ──► fstrim (WslLaunch uid0) ──► terminate ──► wait unlock ──► [elevated? attach RO]
-          ──► CompactVirtualDisk(+progress) ──► [detach] ──► measure ──► [restart]
+preflight ──► fstrim / (as root) ──► terminate ──► wait unlock
+          ──► still locked? ──► refuse (exit 11) unless --shutdown ──► wsl --shutdown
+          ──► OpenVirtualDisk(V2 params, ACCESS_NONE) ──► CompactVirtualDisk(+progress)
+          ──► measure ──► [restart]
 ```
+
+The attach-read-only "full" mode is an opt-in for untrimmed disks, not part of this
+path: after `fstrim` the unattached compaction already reclaims everything, without
+administrator rights (PLAN.md D10).
 
 ### shrink
 
@@ -87,7 +93,7 @@ preflight(fs, space, lock) ──► terminate ──► sparse-aware copy(+prog
 
 ## Windows API notes
 
-- `OpenVirtualDisk` with `VIRTUAL_DISK_ACCESS_METAOPS` suffices for compact/resize when unattached; use `OPEN_VIRTUAL_DISK_VERSION_2` and `VIRTUAL_DISK_ACCESS_NONE` on Win8+ semantics.
+- `OpenVirtualDisk` for an unattached compact/resize **must** use `OPEN_VIRTUAL_DISK_VERSION_2` parameters with `VIRTUAL_DISK_ACCESS_NONE`. `VIRTUAL_DISK_ACCESS_METAOPS` is not an alternative: with V1 or null parameters the handle opens and `CompactVirtualDisk` then returns `ERROR_ACCESS_DENIED`, and `METAOPS` combined with V2 parameters fails to open with `ERROR_INVALID_PARAMETER` (measured, docs/RESEARCH.md).
 - `CompactVirtualDisk` supports `OVERLAPPED`; poll `GetVirtualDiskOperationProgress` every ~250 ms for the progress bar.
 - `ResizeVirtualDisk`: prefer `RESIZE_VIRTUAL_DISK_FLAG_RESIZE_TO_SMALLEST_SAFE_VIRTUAL_SIZE` for shrink; **never** pass `ALLOW_UNSAFE_VIRTUAL_SIZE`.
 - `GetVirtualDiskInformation` with `GET_VIRTUAL_DISK_INFO_SIZE` gives `VirtualSize`, `PhysicalSize`, `BlockSize`, `SectorSize`.
