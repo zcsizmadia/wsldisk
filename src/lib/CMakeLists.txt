@@ -43,6 +43,8 @@ add_library(wsldisk_lib STATIC
     ops/relink.h
     ops/runner.cpp
     ops/runner.h
+    ops/trim.cpp
+    ops/trim.h
 
     platform/clock.cpp
     platform/clock.h

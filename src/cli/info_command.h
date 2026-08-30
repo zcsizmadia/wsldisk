@@ -24,15 +24,6 @@ struct InfoOptions {
     bool probe = false;
 };
 
-/// The registered names closest to `name`, for the not-found remedy.
-///
-/// A wrong name is nearly always a typo or a case difference, and listing what
-/// *is* registered turns a dead end into a next step. Ordered by edit distance,
-/// closest first, and empty when nothing is close enough to be a plausible
-/// correction.
-[[nodiscard]] std::vector<std::string> nearest_names(std::string_view name,
-                                                     const std::vector<std::string>& registered);
-
 /// Finds one distribution and measures it.
 ///
 /// Fails with `DistroNotFound` when the name is not registered, naming the

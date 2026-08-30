@@ -6,6 +6,7 @@ wsldisk_add_test_suite(wsldisk_integration_tests integration
     integration_fixture.cpp
     integration_fixture.h
     relink_integration_test.cpp
+    trim_integration_test.cpp
     wsl_presence_test.cpp)
 
 target_link_libraries(wsldisk_integration_tests PRIVATE wsldisk::lib)

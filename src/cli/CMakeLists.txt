@@ -12,6 +12,8 @@ add_library(wsldisk_cli_lib STATIC
     list_command.h
     logger.cpp
     logger.h
+    lookup.cpp
+    lookup.h
     options.cpp
     options.h
     orphans_command.cpp
@@ -21,7 +23,9 @@ add_library(wsldisk_cli_lib STATIC
     progress.cpp
     progress.h
     render.cpp
-    render.h)
+    render.h
+    trim_command.cpp
+    trim_command.h)
 
 add_library(wsldisk::cli ALIAS wsldisk_cli_lib)
 

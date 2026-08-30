@@ -1,5 +1,6 @@
 #pragma once
 
+#include <algorithm>
 #include <map>
 #include <optional>
 #include <string>
@@ -27,11 +28,13 @@ public:
         : IWslHost(),
           running_(std::move(other.running_)),
           responses_(std::move(other.responses_)),
+          calls_(std::move(other.calls_)),
           running_failure_(std::move(other.running_failure_)),
           terminate_failure_(std::move(other.terminate_failure_)),
           shutdown_failure_(std::move(other.shutdown_failure_)),
           mount_failure_(std::move(other.mount_failure_)),
           command_failure_(std::move(other.command_failure_)),
+          command_failure_from_(other.command_failure_from_),
           commands_(std::move(other.commands_)),
           terminated_(std::move(other.terminated_)),
           mounted_(std::move(other.mounted_)),
@@ -49,7 +52,17 @@ public:
 
     /// Scripts what a guest command returns, keyed on its `argv[0]`.
     void on_command(std::string program, WslCommandResult result) {
-        responses_[std::move(program)] = std::move(result);
+        responses_[std::move(program)] = {std::move(result)};
+    }
+
+    /// Scripts successive answers for one program.
+    ///
+    /// The first call gets the first entry, and the last entry repeats once the
+    /// list runs out. An operation that retries a command with different
+    /// arguments -- `fstrim -v` then plain `fstrim` -- needs the two calls to
+    /// answer differently, which one canned response cannot do.
+    void on_commands(std::string program, std::vector<WslCommandResult> results) {
+        responses_[std::move(program)] = std::move(results);
     }
 
     void fail_running(Error error) { running_failure_ = std::move(error); }
@@ -64,6 +77,16 @@ public:
     /// rather than the command inside returning non-zero. The two are different
     /// and callers report them differently.
     void fail_command(Error error) { command_failure_ = std::move(error); }
+
+    /// The same, but only from the `nth` call onwards (1-based).
+    ///
+    /// A caller that retries has two calls to wsl.exe, and the second failing is
+    /// a different path from the first failing. Failing everything can only ever
+    /// exercise the first.
+    void fail_command_from(std::size_t nth, Error error) {
+        command_failure_ = std::move(error);
+        command_failure_from_ = nth;
+    }
 
     [[nodiscard]] const std::vector<Invocation>& commands() const noexcept { return commands_; }
 
@@ -116,7 +139,7 @@ public:
                         "wsl --exec does not search PATH; pass a full path such as /usr/sbin/fstrim");
         }
 
-        if (command_failure_) {
+        if (command_failure_ && commands_.size() + 1 >= command_failure_from_) {
             return std::unexpected(*command_failure_);
         }
 
@@ -124,10 +147,12 @@ public:
             .distribution = std::string{name}, .argv = {argv.begin(), argv.end()}, .timeout = timeout});
 
         const auto response = responses_.find(argv.front());
-        if (response == responses_.end()) {
+        if (response == responses_.end() || response->second.empty()) {
             return WslCommandResult{};
         }
-        return response->second;
+        // Successive calls walk the list; the last entry repeats.
+        const std::size_t index = std::min(calls_[argv.front()]++, response->second.size() - 1);
+        return response->second[index];
     }
 
     [[nodiscard]] Status mount_bare(const std::filesystem::path& vhdx) const override {
@@ -150,12 +175,14 @@ private:
     // Mutable so the const interface can still record what happened; the fake is
     // a test double, not a value type.
     mutable std::vector<std::string> running_;
-    std::map<std::string, WslCommandResult> responses_;
+    std::map<std::string, std::vector<WslCommandResult>> responses_;
+    mutable std::map<std::string, std::size_t> calls_;
     std::optional<Error> running_failure_;
     std::optional<Error> terminate_failure_;
     std::optional<Error> shutdown_failure_;
     std::optional<Error> mount_failure_;
     std::optional<Error> command_failure_;
+    std::size_t command_failure_from_ = 1;
     mutable std::vector<Invocation> commands_;
     mutable std::vector<std::string> terminated_;
     mutable std::vector<std::string> mounted_;
