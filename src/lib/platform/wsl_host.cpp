@@ -151,7 +151,14 @@ Result<WslRawResult> run_wsl(const std::vector<std::wstring>& arguments, std::ch
     const BOOL started = win32().create_process(nullptr, command_line.data(), nullptr, nullptr, TRUE,
                                                 CREATE_NO_WINDOW, nullptr, nullptr, &startup, &process);
     if (started == FALSE) {
-        return std::unexpected(error_from_win32(win32().get_last_error(), "run wsl.exe"));
+        // error_from_win32 leaves the remedy empty for a code it does not map,
+        // and "failed to run wsl.exe: unexpected Win32 error" on its own tells
+        // the user nothing. This call site knows what was being launched, so it
+        // can say what to check -- a machine with no WSL installed is by far the
+        // most common way to get here.
+        Error error = error_from_win32(win32().get_last_error(), "run wsl.exe");
+        error.remedy = "check that WSL is installed and on PATH; `wsl --status` should answer";
+        return std::unexpected(std::move(error));
     }
 
     const ScopedHandle process_handle{process.hProcess};

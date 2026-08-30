@@ -270,6 +270,9 @@ TEST_CASE("run_wsl reports wsl.exe failing to start", "[platform][wsl]") {
 
     REQUIRE_FALSE(result.has_value());
     CHECK(result.error().message.find("wsl.exe") != std::string::npos);
+    // Every error carries a remedy. The Win32 mapper has none for an unmapped
+    // code, so this call site supplies the one that actually helps.
+    CHECK(result.error().remedy.find("wsl --status") != std::string::npos);
 }
 
 TEST_CASE("run_wsl reports a failed wait", "[platform][wsl]") {
