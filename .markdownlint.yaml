@@ -12,8 +12,6 @@ MD041: false   # files may start with a badge block
 # and promoting it to one would put it in every table of contents.
 MD036: false
 
-# The documents use underscores for emphasis throughout.
-MD049:
-  style: underscore
-MD050:
-  style: asterisk
+# The documents mix `_emphasis_` and `*emphasis*`; both read fine and
+# normalising them would churn prose for no reader benefit.
+MD049: false
