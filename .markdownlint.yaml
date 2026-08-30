@@ -15,3 +15,10 @@ MD036: false
 # The documents mix `_emphasis_` and `*emphasis*`; both read fine and
 # normalising them would churn prose for no reader benefit.
 MD049: false
+
+# Table pipe spacing. Added in markdownlint 0.41 and it flagged 44 existing
+# tables the moment the action was bumped. The compact `|---|---|` form is what
+# these documents use and it renders identically; padding every cell to align
+# would be a large diff that no reader benefits from, and it would go stale the
+# first time a cell's text changes length.
+MD060: false

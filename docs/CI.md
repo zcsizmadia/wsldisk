@@ -148,3 +148,30 @@ Studio. The pinned LLVM in `setup-toolchain` (20.1.8) analyses the tree cleanly,
 so the step no longer runs with `continue-on-error`. The version must stay
 pinned — floating it would reintroduce the crash on any machine whose default
 clang-tidy is older.
+
+### Reading the clang-tidy output
+
+The lint job prints a running total that looks alarming and is not:
+
+```text
+[7/7] Processing file ...\src\lib\errors.cpp.
+1199182 warnings generated.
+Suppressed 1199186 warnings (1199182 in non-user code, 4 NOLINT).
+```
+
+That figure is cumulative across the seven translation units, and every one of
+those diagnostics comes from a system or toolchain header — clang's own
+intrinsics (`avx512*intrin.h` and friends) dominate, followed by the MSVC STL and
+the Windows SDK. **None come from `src/`**: `HeaderFilterRegex` in `.clang-tidy`
+restricts reporting to our own tree, and the counter reports what the compiler
+generated before that filter applied.
+
+The bulk is `bugprone-reserved-identifier` (with its `cert-dcl37-c` and
+`cert-dcl51-cpp` aliases) firing on names like
+`_CRT_USE_WINAPI_FAMILY_DESKTOP_APP` — leading-underscore identifiers are
+reserved *for the implementation*, and those headers are the implementation.
+
+The line that matters is the last one: anything clang-tidy actually wants changed
+is printed as an error above it, and the step fails. `--quiet` does not remove the
+noise, because `N warnings generated` comes from the clang frontend rather than
+from clang-tidy's own reporting.

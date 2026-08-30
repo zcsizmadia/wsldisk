@@ -23,8 +23,8 @@ Goal: de-risk the unknowns, have a compiling skeleton and CI.
 - [x] Test skeleton: `tests/unit` (Catch2), `tests/contract` (real Win32 on temp files), `tests/integration` (gated by `WSLDISK_INTEGRATION`)
 - [ ] `tests/fuzz` targets and `nightly.yml` ([#10](https://github.com/zcsizmadia/wsldisk/issues/10))
 - [ ] Fakes for the remaining interfaces (`FakeRegistry`, `FakeVirtualDisk`, `FakeWslHost`, `FakeFileSystem`, `FakeClock`) — land with the interfaces in M1
-- [ ] Make `clang-tidy` a blocking gate ([#8](https://github.com/zcsizmadia/wsldisk/issues/8)) — clang-tidy 18 crashes on the MSVC 14.4x C++23 headers
-- [ ] Verify WSL2 works on `windows-2025` hosted runners; decide hosted vs self-hosted ([#7](https://github.com/zcsizmadia/wsldisk/issues/7))
+- [x] Make `clang-tidy` a blocking gate ([#8](https://github.com/zcsizmadia/wsldisk/issues/8)) — needed a pinned LLVM 20; the crash was specific to clang-tidy 18
+- [x] Verify WSL2 works on `windows-2025` hosted runners; decide hosted vs self-hosted ([#7](https://github.com/zcsizmadia/wsldisk/issues/7))
 - [x] `codeql.yml`, `dependabot.yml` (actions), `vcpkg-baseline.yml`, `labeler.yml`, `stale.yml`
 - [x] Composite actions: `setup-toolchain`, `wsl-fixture` (SHA-pinned Alpine 3.22.4 rootfs), `wsl-cleanup`
 - [ ] Branch protection on `main`: all CI jobs required, linear history ([#9](https://github.com/zcsizmadia/wsldisk/issues/9))
@@ -32,11 +32,11 @@ Goal: de-risk the unknowns, have a compiling skeleton and CI.
 
 **Technical spikes** (throwaway code under `spikes/`, results recorded in `docs/RESEARCH.md`)
 
-- [ ] `CompactVirtualDisk` unattached vs attached-RO: measure reclaimed bytes after `fstrim` on a 20 GB test distro ([#1](https://github.com/zcsizmadia/wsldisk/issues/1))
+- [x] `CompactVirtualDisk` unattached vs attached-RO: measure reclaimed bytes after `fstrim` ([#1](https://github.com/zcsizmadia/wsldisk/issues/1))
 - [ ] Confirm `ResizeVirtualDisk` shrink path + `resize2fs` via `wsl --mount --vhd --bare` ([#2](https://github.com/zcsizmadia/wsldisk/issues/2))
 - [ ] `WslLaunch` as uid 0 with a non-root default user ([#3](https://github.com/zcsizmadia/wsldisk/issues/3))
-- [ ] Registry layout across WSL inbox 1.x / Store 2.x ([#4](https://github.com/zcsizmadia/wsldisk/issues/4))
-- [ ] Docker Desktop VHDX lock behaviour when Docker is "stopped" vs quit ([#5](https://github.com/zcsizmadia/wsldisk/issues/5))
+- [x] Registry layout across WSL inbox 1.x / Store 2.x ([#4](https://github.com/zcsizmadia/wsldisk/issues/4))
+- [x] Docker Desktop VHDX lock behaviour when Docker is "stopped" vs quit ([#5](https://github.com/zcsizmadia/wsldisk/issues/5))
 - [ ] Elevation relaunch + named-pipe result streaming prototype ([#6](https://github.com/zcsizmadia/wsldisk/issues/6))
 
 **Exit criteria:** CI green with the 100% coverage gate passing on the skeleton, all spikes answered in RESEARCH.md, open questions in PLAN.md §8 resolved or converted to issues.
