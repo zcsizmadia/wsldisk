@@ -49,28 +49,57 @@ Five of the six spikes contradicted the plan, which is what they were for: `wsla
 
 Goal: the 80% use case — see where the space is and get it back — shippable.
 
-- [ ] `IRegistry`, `IVirtualDisk`, `IWslHost`, `IFileSystem` interfaces + Win32 implementations + fakes
-- [ ] Distro enumeration (registry) with WSL1/WSL2 detection and default marker; WSL1 entries listed but refused by all other commands (exit 3, conversion hint)
-- [ ] Size probes: virtual size, actual on-disk (`GetCompressedFileSize`), sparse detection, guest `df` (`--probe`)
-- [ ] `wsldisk list` table + `--json` + `--scan` for orphaned VHDX
-- [ ] `Plan → Execute → Verify` operation framework with progress sink and undo stack
-- [ ] `CompactOperation`: preflight, `fstrim`, terminate, wait-for-unlock, compact (unattached), report
-- [ ] Attached-RO "full" compaction when elevated; `--elevate` relaunch (needs the elevation IPC, [#6](https://github.com/zcsizmadia/wsldisk/issues/6), now an M2 item)
-- [ ] `--all`, `--dry-run`, `--no-trim`, `--restart`, `--file <vhdx>`
-- [ ] `wsldisk info <distro>` detail view + `--json`
-- [ ] `wsldisk trim <distro>` (fstrim only, no shutdown)
-- [ ] `wsldisk orphans` with default scan dirs, `--delete`, `--relink`
-- [ ] `wsldisk config get|set|edit|path`; `config.toml` schema
-- [ ] `wsldisk completion powershell|bash|zsh`
-- [ ] Exit code scheme, `-v` logging, `--log`
-- [ ] Unit tests (100% coverage) for `list`/`compact` planner, preflight, renderers; golden files for table + JSON
-- [ ] Contract tests: `CompactVirtualDisk`/`GetVirtualDiskInformation`/sparse-size probes on temp VHDX; registry enumeration on scratch hive
-- [ ] Integration tests: import Alpine, bloat, compact, assert shrink & boot; `--dry-run` no-op; running-distro refusal (exit 11); elevation refusal (exit 4)
-- [ ] Fuzz targets: registry values, `wsl.exe -l -v` output, size strings — wired into `nightly.yml`
-- [ ] README usage docs, `docs/COMPACT.md` explaining what happens and why
-- [ ] `release.yml`: tag → full matrix → SBOM → Sigstore + attestations → GitHub Release with generated notes → post-install smoke
-- [ ] `nightly.yml`: integration across WSL latest / latest-1, fuzzers, large-disk perf
-- [ ] First winget + scoop manifests (may land in M2 if name check pending)
+Eight phases in dependency order. One ticket is one pull request: its own unit,
+contract and (where it touches WSL) integration tests, the 100% coverage gate,
+and `scripts/lint.ps1` clean. Each ticket's body carries the measured facts from
+M0 it has to encode, so they are not rediscovered.
+
+**Phase 1 — platform foundations** (all four in parallel; no dependencies)
+
+- [ ] `IRegistry`, `Win32Registry`, `FakeRegistry` with canned hives for every layout spike #4 found ([#20](https://github.com/zcsizmadia/wsldisk/issues/20))
+- [ ] `IVirtualDisk`, `Win32VirtualDisk`, `FakeVirtualDisk` — V2 open parameters + `ACCESS_NONE` only, with a contract test pinning that `METAOPS` fails ([#21](https://github.com/zcsizmadia/wsldisk/issues/21))
+- [ ] `IWslHost`, `WslExeHost`, `FakeWslHost` — `wsl.exe` only, `wslapi.dll` is gone; absolute paths, UTF-16 decode, stderr noise; fuzz target for the `--list` decoder ([#22](https://github.com/zcsizmadia/wsldisk/issues/22))
+- [ ] `IFileSystem` extensions (directory scan, allocated ranges, delete) and `IClock`/`FakeClock` ([#23](https://github.com/zcsizmadia/wsldisk/issues/23))
+
+**Phase 2 — model** (needs Phase 1)
+
+- [ ] `Distro` model and registry enumeration — prefix forms preserved, `VhdFileName` optional, WSL1 enumerated but refused elsewhere; fuzz target for the value parser ([#24](https://github.com/zcsizmadia/wsldisk/issues/24))
+- [ ] Size probes — virtual, on-disk, allocated, guest `df` only when running or `--probe`; unknown is a value, not a failure ([#25](https://github.com/zcsizmadia/wsldisk/issues/25))
+
+**Phase 3 — operation framework** (needs `IClock`; parallel with Phase 2)
+
+- [ ] `Plan → Execute → Verify`, LIFO undo, `ProgressSink`, `OperationRunner` with automatic rollback ([#26](https://github.com/zcsizmadia/wsldisk/issues/26))
+
+**Phase 4 — read-only commands** (needs Phases 2 and 3)
+
+- [ ] CLI plumbing — `--json`, `-v`/`--log`, `--yes`, `--dry-run`, exit codes, table and JSON renderers, golden tests, shared WSL1 refusal ([#27](https://github.com/zcsizmadia/wsldisk/issues/27))
+- [ ] `wsldisk list` ([#28](https://github.com/zcsizmadia/wsldisk/issues/28))
+- [ ] `wsldisk info <distro>` ([#29](https://github.com/zcsizmadia/wsldisk/issues/29))
+- [ ] `wsldisk orphans` with both scan layouts, `--delete`, `--relink` — the first mutating command, exercises rollback ([#30](https://github.com/zcsizmadia/wsldisk/issues/30))
+
+**Phase 5 — mutating commands** (needs Phase 4)
+
+- [ ] `wsldisk trim <distro>` — `fstrim /`, never `-av`; honest about what "bytes trimmed" means ([#31](https://github.com/zcsizmadia/wsldisk/issues/31))
+- [ ] `CompactOperation` and `wsldisk compact` — D9 refuse-and-name with `--shutdown`, D10 unelevated path, `--all`/`--file`/`--dry-run`/`--no-trim`/`--restart`; the milestone's acceptance test ([#32](https://github.com/zcsizmadia/wsldisk/issues/32))
+- [~] Attached-RO "full" compaction and `--elevate` — moved to M2 with the elevation IPC ([#6](https://github.com/zcsizmadia/wsldisk/issues/6))
+
+**Phase 6 — configuration** (needs Phase 4; parallel with Phase 5)
+
+- [ ] `config.toml` and `wsldisk config get|set|edit|path`; read-only `.wslconfig` display; fuzz target for the parser ([#33](https://github.com/zcsizmadia/wsldisk/issues/33))
+- [ ] `wsldisk completion powershell|bash|zsh`, generated from the CLI11 tree ([#34](https://github.com/zcsizmadia/wsldisk/issues/34))
+
+**Phase 7 — integration harness** (needs `IWslHost`; unblocks every command's integration tests, so it starts early)
+
+- [ ] `ScratchDistro` RAII fixture, junk/hash helpers, second-distro helper for D9, the `wsl.exe` traps encoded ([#35](https://github.com/zcsizmadia/wsldisk/issues/35))
+
+**Phase 8 — release** (docs need every command; `release.yml` can start any time)
+
+- [ ] README usage, `docs/COMPACT.md`, `docs/JSON.md`, real `docs/ARCHITECTURE.md` layout ([#36](https://github.com/zcsizmadia/wsldisk/issues/36))
+- [ ] `release.yml`: tag → full matrix → SBOM → attestations → GitHub Release → post-install smoke ([#37](https://github.com/zcsizmadia/wsldisk/issues/37))
+- [ ] winget + scoop manifests — may slip to M2 if the winget review is slow ([#38](https://github.com/zcsizmadia/wsldisk/issues/38))
+
+Already done in M0 and carried forward: `nightly.yml` with fuzzing and the
+integration suite; the size-string fuzz target.
 
 **Exit criteria:** A Windows Home user with no Hyper-V module can `winget install wsldisk` and reclaim space from Ubuntu and Docker Desktop with one command.
 
