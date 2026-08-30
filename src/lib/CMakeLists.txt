@@ -31,6 +31,8 @@ add_library(wsldisk_lib STATIC
     platform/filesystem.h
     platform/registry.cpp
     platform/registry.h
+    platform/virtual_disk.cpp
+    platform/virtual_disk.h
     platform/win32_api.cpp
     platform/win32_api.h
     platform/win32_error.cpp
@@ -40,6 +42,7 @@ add_library(wsldisk::lib ALIAS wsldisk_lib)
 
 target_include_directories(wsldisk_lib PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}")
 
-target_link_libraries(wsldisk_lib PUBLIC wsldisk::flags)
+# VirtDisk.lib is the Virtual Disk Service; it is not in the default link set.
+target_link_libraries(wsldisk_lib PUBLIC wsldisk::flags PRIVATE virtdisk uuid)
 
 set_target_properties(wsldisk_lib PROPERTIES FOLDER "wsldisk")
