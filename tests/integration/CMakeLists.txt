@@ -5,7 +5,13 @@
 wsldisk_add_test_suite(wsldisk_integration_tests integration
     integration_fixture.cpp
     integration_fixture.h
+    relink_integration_test.cpp
     wsl_presence_test.cpp)
 
 target_link_libraries(wsldisk_integration_tests PRIVATE wsldisk::lib)
 target_include_directories(wsldisk_integration_tests PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}")
+
+# The pinned rootfs is cached next to the manifest that pins its digest, in the
+# source tree rather than the build directory.
+target_compile_definitions(wsldisk_integration_tests
+    PRIVATE WSLDISK_FIXTURE_DIR="${CMAKE_SOURCE_DIR}/tests/fixtures")

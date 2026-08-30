@@ -1,0 +1,5 @@
+SIZE ON DISK  PATH
+3.0 GiB       C:\Users\example\AppData\Local\wsl\Removed-Distro\ext4.vhdx
+68.0 GiB      C:\Users\example\AppData\Local\Docker\wsl\disk\docker_data.vhdx
+
+71.0 GiB in 2 file(s) that no distribution claims

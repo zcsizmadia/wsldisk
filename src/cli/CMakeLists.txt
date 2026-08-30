@@ -14,8 +14,12 @@ add_library(wsldisk_cli_lib STATIC
     logger.h
     options.cpp
     options.h
+    orphans_command.cpp
+    orphans_command.h
     preflight.cpp
     preflight.h
+    progress.cpp
+    progress.h
     render.cpp
     render.h)
 

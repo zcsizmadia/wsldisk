@@ -32,12 +32,14 @@ public:
           keys_(std::move(other.keys_)),
           failure_(std::move(other.failure_)),
           value_failures_(std::move(other.value_failures_)),
+          write_failures_(std::move(other.write_failures_)),
           writes_(std::move(other.writes_)) {}
 
     FakeRegistry& operator=(FakeRegistry&& other) noexcept {
         keys_ = std::move(other.keys_);
         failure_ = std::move(other.failure_);
         value_failures_ = std::move(other.value_failures_);
+        write_failures_ = std::move(other.write_failures_);
         writes_ = std::move(other.writes_);
         return *this;
     }
@@ -60,6 +62,15 @@ public:
     /// read. This reaches the others.
     void fail_value(std::wstring value, Error error) {
         value_failures_.insert_or_assign(std::move(value), std::move(error));
+    }
+
+    /// Makes writes of one named value fail, leaving every other write working.
+    ///
+    /// An operation writes more than one value and puts back what it already
+    /// wrote when a later one fails. A fake that fails every write can only
+    /// ever exercise the first, which is the case with nothing to undo.
+    void fail_write(std::wstring value, Error error) {
+        write_failures_.insert_or_assign(std::move(value), std::move(error));
     }
 
     /// Records every `write_string`, so an operation's rollback can be asserted.
@@ -105,6 +116,9 @@ public:
         if (failure_) {
             return std::unexpected(*failure_);
         }
+        if (const auto named = write_failures_.find(std::wstring{value}); named != write_failures_.end()) {
+            return std::unexpected(named->second);
+        }
         writes_.push_back({std::wstring{key}, std::wstring{value}, std::wstring{data}});
         keys_[std::wstring{key}][std::wstring{value}] = std::wstring{data};
         return {};
@@ -139,6 +153,7 @@ private:
     std::map<std::wstring, ValueMap> keys_;
     std::optional<Error> failure_;
     std::map<std::wstring, Error> value_failures_;
+    std::map<std::wstring, Error> write_failures_;
     std::vector<Write> writes_;
 };
 

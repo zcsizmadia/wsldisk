@@ -279,6 +279,15 @@ public:
     [[nodiscard]] virtual Result<std::vector<AllocatedRange>> allocated_ranges(
         const std::filesystem::path& path) const = 0;
 
+    /// Whether another process holds the file open for writing.
+    ///
+    /// The guard on `orphans --delete`. A disk can be absent from the WSL
+    /// registry and still be in use -- Docker Desktop keeps a `docker_data.vhdx`
+    /// that no distribution claims and that holds every volume the user has --
+    /// so "no registry entry points at it" is not the same as "nothing needs
+    /// it", and deleting on that basis alone would be destructive.
+    [[nodiscard]] virtual Result<bool> is_locked(const std::filesystem::path& path) const = 0;
+
     /// Deletes a file. Only ever called after the user has confirmed.
     [[nodiscard]] virtual Status remove(const std::filesystem::path& path) = 0;
 

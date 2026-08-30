@@ -33,7 +33,8 @@ untested code is not shipped.
 - `FakeWslHost` — scripted responses for launch/terminate/mount; records commands run inside the "distro"; can simulate a running distro holding the lock.
 - `FakeFileSystem` — in-memory files with sparse ranges, volume types (NTFS/ReFS/FAT), free space, copy failures at byte N.
 - `FakeClock` — deterministic timeouts for wait-for-unlock loops.
-- Fixture rootfs: a ~3 MB Alpine minirootfs tarball downloaded by `scripts/fetch-fixtures.ps1` (SHA256-pinned, cached in CI). Integration tests import it as `wsldisk-test-<guid>` under `%TEMP%` and always remove it in a `finally`/scope guard, even on failure.
+- Fixture rootfs: a ~3 MB Alpine minirootfs tarball downloaded by `scripts/fetch-fixtures.ps1` (SHA256-pinned, cached in CI). `TempDistro` (`tests/integration/integration_fixture.h`) imports it as `wsldisk-test-<case>-<pid>` under `%TEMP%` and unregisters it in the destructor, so it goes even on failure. A test that has not run the fetch script skips rather than fails: a missing fixture is a setup gap, not a defect.
+- `TempDistro::release_disk()` is how a test frees the `.vhdx` before moving it. `wsl --terminate` returns before the utility VM closes the file, so it terminates, polls `IFileSystem::is_locked`, and only falls back to `wsl --shutdown` if that is not enough — the fallback is certain but stops every distribution the developer running the suite is using.
 
 ## Integration test scenarios (must all exist before the corresponding command ships)
 

@@ -73,12 +73,12 @@ struct Machine {
         host.on_command("/bin/df", df);
     }
 
-    [[nodiscard]] Services services() const {
+    [[nodiscard]] Services services() {
         return Services{.registry = &registry, .filesystem = &filesystem, .disks = &disks, .host = &host};
     }
 };
 
-std::string details_of(const Machine& machine, const std::string& name) {
+std::string details_of(Machine& machine, const std::string& name) {
     std::ostringstream errors;
     NullLogger logger{errors};
     const auto row = gather_one(machine.services(), InfoOptions{.name = name}, logger);
@@ -92,7 +92,7 @@ std::string details_of(const Machine& machine, const std::string& name) {
 }  // namespace
 
 TEST_CASE("info describes a modern distribution", "[cli][info]") {
-    const Machine machine;
+    Machine machine;
 
     Golden{"info-modern.txt"}.check(details_of(machine, "Ubuntu"));
 }
@@ -101,7 +101,7 @@ TEST_CASE("info shows an absent VhdFileName as absent", "[cli][info]") {
     // The legacy MSIX layout has no such value. "Absent" and "set to
     // ext4.vhdx" are different registry states, and `info` is where the
     // difference is visible.
-    const Machine machine;
+    Machine machine;
 
     const std::string details = details_of(machine, "Ubuntu-20.04");
 
@@ -112,7 +112,7 @@ TEST_CASE("info shows an absent VhdFileName as absent", "[cli][info]") {
 TEST_CASE("info shows the stored BasePath with its prefix", "[cli][info]") {
     // The one place a user can see that their BasePath is the extended-length
     // kind, which is why `relink` has to write back the same form.
-    const Machine machine;
+    Machine machine;
 
     const std::string details = details_of(machine, "docker-desktop");
 
@@ -124,7 +124,7 @@ TEST_CASE("info shows the stored BasePath with its prefix", "[cli][info]") {
 TEST_CASE("info decodes the flags and keeps the raw value", "[cli][info]") {
     // 15 on every distribution spike #4 measured: the three documented flags
     // plus a bit no published header names.
-    const Machine machine;
+    Machine machine;
 
     const std::string details = details_of(machine, "Ubuntu");
 
@@ -133,7 +133,7 @@ TEST_CASE("info decodes the flags and keeps the raw value", "[cli][info]") {
 }
 
 TEST_CASE("info reports a WSL1 distribution without inventing disk numbers", "[cli][info]") {
-    const Machine machine;
+    Machine machine;
 
     const std::string details = details_of(machine, "Legacy-WSL1");
 
@@ -145,7 +145,7 @@ TEST_CASE("info reports a WSL1 distribution without inventing disk numbers", "[c
 TEST_CASE("info matches a name case-insensitively", "[cli][info]") {
     // `wsl.exe` matches names that way; a tool beside it that did not would be
     // its own kind of surprise.
-    const Machine machine;
+    Machine machine;
     std::ostringstream errors;
     NullLogger logger{errors};
 
@@ -154,7 +154,7 @@ TEST_CASE("info matches a name case-insensitively", "[cli][info]") {
 }
 
 TEST_CASE("an unknown name exits 10 and suggests the closest", "[cli][info]") {
-    const Machine machine;
+    Machine machine;
     std::ostringstream errors;
     NullLogger logger{errors};
 
@@ -169,7 +169,7 @@ TEST_CASE("an unknown name exits 10 and suggests the closest", "[cli][info]") {
 TEST_CASE("a name nothing resembles falls back to listing", "[cli][info]") {
     // A suggestion that is not a plausible correction stops looking like help
     // and starts looking like the tool guessing.
-    const Machine machine;
+    Machine machine;
     std::ostringstream errors;
     NullLogger logger{errors};
 
@@ -216,7 +216,7 @@ TEST_CASE("suggestions from an empty registry are empty", "[cli][info]") {
 TEST_CASE("the info json object is a superset of the list line", "[cli][info]") {
     // `info --json` and `list --json` must describe the same distribution the
     // same way, or a script cannot use them interchangeably.
-    const Machine machine;
+    Machine machine;
     std::ostringstream errors;
     NullLogger logger{errors};
     const auto row = gather_one(machine.services(), InfoOptions{.name = "Ubuntu"}, logger);
@@ -240,7 +240,7 @@ TEST_CASE("the info json object is a superset of the list line", "[cli][info]") 
 TEST_CASE("the info json omits a parent path when there is none", "[cli][info]") {
     // No WSL distribution is a differencing disk unless someone built a chain
     // by hand.
-    const Machine machine;
+    Machine machine;
     std::ostringstream errors;
     NullLogger logger{errors};
     const auto row = gather_one(machine.services(), InfoOptions{.name = "Ubuntu"}, logger);
@@ -365,7 +365,7 @@ TEST_CASE("an undocumented bit is reported by number", "[cli][info]") {
 TEST_CASE("two plausible corrections are both offered", "[cli][info]") {
     // `Ubuntu-20` is three edits from both `Ubuntu` and `Ubuntu-20.04`, so the
     // remedy lists them rather than picking one and hoping.
-    const Machine machine;
+    Machine machine;
     std::ostringstream errors;
     NullLogger logger{errors};
 

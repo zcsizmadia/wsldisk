@@ -61,7 +61,7 @@ struct Machine {
         disks.add_disk(path, disk);
     }
 
-    [[nodiscard]] Services services() const {
+    [[nodiscard]] Services services() {
         return Services{.registry = &registry, .filesystem = &filesystem, .disks = &disks, .host = &host};
     }
 
