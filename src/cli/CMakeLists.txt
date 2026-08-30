@@ -1,14 +1,23 @@
 find_package(CLI11 CONFIG REQUIRED)
+find_package(nlohmann_json CONFIG REQUIRED)
 
 # The command surface lives in a library so unit tests can drive `run()` in
 # process, with captured streams, instead of shelling out to the executable.
 add_library(wsldisk_cli_lib STATIC
     app.cpp
-    app.h)
+    app.h
+    logger.cpp
+    logger.h
+    options.cpp
+    options.h
+    preflight.cpp
+    preflight.h
+    render.cpp
+    render.h)
 
 add_library(wsldisk::cli ALIAS wsldisk_cli_lib)
 
-target_link_libraries(wsldisk_cli_lib PUBLIC wsldisk::lib CLI11::CLI11)
+target_link_libraries(wsldisk_cli_lib PUBLIC wsldisk::lib CLI11::CLI11 nlohmann_json::nlohmann_json)
 target_include_directories(wsldisk_cli_lib PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}")
 set_target_properties(wsldisk_cli_lib PROPERTIES FOLDER "wsldisk")
 

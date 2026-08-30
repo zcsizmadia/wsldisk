@@ -7,6 +7,10 @@
 #     are the documented process exit codes.
 #   misc-include-cleaner -- too noisy against <windows.h>, which pulls in
 #     hundreds of transitive headers.
+#   portability-template-virtual-member-function -- fires inside MSVC's own
+#     <fstream> the moment anything holds a std::ofstream. The finding is about
+#     the standard library's internals, not ours, and there is nothing in this
+#     repository to change in response to it.
 #   cppcoreguidelines-pro-type-union-access -- the Virtual Disk Service passes
 #     every parameter and result through a versioned union (OPEN_VIRTUAL_DISK_
 #     PARAMETERS, GET_VIRTUAL_DISK_INFO, ...). Reading those members is the API,
@@ -34,6 +38,7 @@ Checks: >
   -misc-non-private-member-variables-in-classes,
   -modernize-use-trailing-return-type,
   -performance-enum-size,
+  -portability-template-virtual-member-function,
   -readability-identifier-length,
   -readability-magic-numbers
 
