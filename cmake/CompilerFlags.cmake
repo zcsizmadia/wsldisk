@@ -87,7 +87,7 @@ if(MSVC)
     endif()
 endif()
 
-if(WSLDISK_ENABLE_COVERAGE)
+if(WSLDISK_ENABLE_COVERAGE OR WSLDISK_BUILD_FUZZERS)
     wsldisk_find_clang_runtime_dir(WSLDISK_CLANG_RUNTIME_DIR)
     if(WSLDISK_CLANG_RUNTIME_DIR STREQUAL "")
         message(FATAL_ERROR

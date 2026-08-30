@@ -2,6 +2,7 @@
 
 #include <catch2/catch_test_macros.hpp>
 
+#include <array>
 #include <cstdint>
 #include <limits>
 #include <string>
@@ -128,7 +129,43 @@ TEST_CASE("format_size picks the largest unit that keeps the mantissa above one"
     CHECK(format_size(tib) == "1.0 TiB");
     CHECK(format_size(pib) == "1.0 PiB");
     // Beyond PiB the unit stops growing and the mantissa carries the magnitude.
-    CHECK(format_size(std::numeric_limits<std::uint64_t>::max()) == "16384.0 PiB");
+    // 16383.99999999999911 PiB truncates rather than rounding to "16384.0 PiB",
+    // which parse_size would reject as an overflow -- see the round-trip test.
+    CHECK(format_size(std::numeric_limits<std::uint64_t>::max()) == "16383.9 PiB");
+}
+
+TEST_CASE("every rendered size can be parsed back", "[size]") {
+    // Found by the fuzzer on its first corpus replay: format_size used to round,
+    // so u64 max (16383.99999999999911 PiB) rendered as "16384.0 PiB", which is
+    // 2^64 and parse_size rejects. Anything list or info prints must be something
+    // the user can paste back into --to.
+    const std::array<std::uint64_t, 9> interesting{
+        0,
+        1,
+        1023,
+        kib,
+        kib + kib / 2,
+        pib,
+        16383ULL * pib,
+        18014398509481983ULL * kib,
+        std::numeric_limits<std::uint64_t>::max(),
+    };
+
+    for (const std::uint64_t value : interesting) {
+        const std::string rendered = format_size(value);
+        INFO("value " << value << " rendered as '" << rendered << "'");
+        const auto reparsed = parse_size(rendered);
+        REQUIRE(reparsed.has_value());
+        // Truncation means the round trip never exceeds the original.
+        CHECK(*reparsed <= value);
+    }
+}
+
+TEST_CASE("format_size never overstates a size", "[size]") {
+    // 1023.96 MiB must not read as "1024.0 MiB" -- that is a gibibyte that is
+    // not there, and it contradicts the unit the value was placed in.
+    CHECK(format_size(mib * 1024 - 1) == "1023.9 MiB");
+    CHECK(format_size(gib * 1024 - 1) == "1023.9 GiB");
 }
 
 TEST_CASE("format_size_delta always shows the direction", "[size]") {

@@ -30,3 +30,7 @@ endfunction()
 add_subdirectory(unit)
 add_subdirectory(contract)
 add_subdirectory(integration)
+
+if(WSLDISK_BUILD_FUZZERS)
+    add_subdirectory(fuzz)
+endif()

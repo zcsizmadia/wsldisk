@@ -175,3 +175,22 @@ The line that matters is the last one: anything clang-tidy actually wants change
 is printed as an error above it, and the step fails. `--quiet` does not remove the
 noise, because `N warnings generated` comes from the clang frontend rather than
 from clang-tidy's own reporting.
+
+### `nightly.yml`
+
+Implemented as of the fuzz work: a `fuzz` job per target and an `integration`
+job against whatever WSL build the runner image ships that night.
+
+The fuzz job restores the accumulated corpus from the actions cache, fuzzes on
+top of it for `fuzz-seconds` (600 by default, overridable through
+`workflow_dispatch`), saves the corpus again, and — on a scheduled run — opens an
+issue containing the reproducer and the tail of the fuzzer log. Reproducers are
+always uploaded as an artifact, including for manual runs.
+
+`restore-keys` matters: a run that finds nothing still starts from the most
+recent corpus rather than from the seeds alone, so coverage accumulates instead
+of resetting every night.
+
+The WSL-version matrix, large-disk performance timing and mutation testing that
+this file describes are not implemented yet; they arrive with the commands they
+would exercise.

@@ -215,6 +215,28 @@ jobs:
         shell: pwsh
         run: ctest --test-dir build/x64-asan -C Debug -L "unit|contract" --output-on-failure
 
+  fuzz-corpus:
+    name: fuzz corpus
+    runs-on: windows-2025
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+
+      - uses: ./.github/actions/setup-toolchain
+        with:
+          llvm: 'true'
+
+      # Builds the fuzz targets and replays the checked-in corpus once. This is
+      # not fuzzing -- nightly.yml does that with a time budget -- it is
+      # regression cover, so an input that once found a bug keeps being checked
+      # on every pull request.
+      - name: Build and replay
+        shell: pwsh
+        run: |
+          cmake --preset x64-fuzz
+          cmake --build build/x64-fuzz --config Release
+          ctest --test-dir build/x64-fuzz -C Release -L fuzz --output-on-failure
+
   integration:
     name: integration (WSL2)
     runs-on: windows-2025
