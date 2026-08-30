@@ -145,6 +145,42 @@ class TestExclusions:
         assert applied == []
 
 
+class TestDefaultedSpecialMembers:
+    def write(self, tmp_path: Path, text: str) -> str:
+        source = tmp_path / "example.h"
+        source.write_text(text, encoding="utf-8")
+        return str(source)
+
+    def test_a_defaulted_destructor_is_not_counted(self, tmp_path: Path):
+        path = self.write(tmp_path, "class A {\n    virtual ~A() = default;\n};\n")
+        files, _ = check_coverage.parse_lcov(lcov("FN:2,dtor\nFNDA:0,dtor\nDA:2,0", path))
+        assert files[0].functions_found == 0
+        assert files[0].lines_found == 0
+        assert files[0].defaulted_functions == 1
+
+    def test_spacing_around_default_does_not_matter(self, tmp_path: Path):
+        path = self.write(tmp_path, "class A {\n    A()=default;\n};\n")
+        files, _ = check_coverage.parse_lcov(lcov("FN:2,ctor\nFNDA:0,ctor\nDA:2,0", path))
+        assert files[0].functions_found == 0
+
+    def test_a_deleted_member_is_not_treated_as_defaulted(self, tmp_path: Path):
+        # `= delete` has no body to cover either, but llvm-cov never reports one,
+        # so a rule that swallowed it would only hide real gaps.
+        path = self.write(tmp_path, "class A {\n    A(const A&) = delete;\n};\n")
+        files, _ = check_coverage.parse_lcov(lcov("FN:2,copy\nFNDA:0,copy\nDA:2,0", path))
+        assert files[0].functions_found == 1
+
+    def test_a_real_body_on_the_same_line_still_counts(self, tmp_path: Path):
+        path = self.write(tmp_path, "class A {\n    int f() { return by_default(); }\n};\n")
+        files, _ = check_coverage.parse_lcov(lcov("FN:2,f\nFNDA:0,f\nDA:2,0", path))
+        assert files[0].functions_found == 1
+
+    def test_defaulted_members_do_not_count_against_the_exclusion_cap(self, tmp_path: Path):
+        path = self.write(tmp_path, "class A {\n    ~A() = default;\n};\n")
+        _, applied = check_coverage.parse_lcov(lcov("FN:2,dtor\nFNDA:0,dtor\nDA:2,0", path))
+        assert applied == []
+
+
 class TestGate:
     def run(self, tmp_path: Path, body: str, *args: str) -> int:
         report = tmp_path / "coverage.lcov"

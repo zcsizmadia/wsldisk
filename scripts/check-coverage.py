@@ -26,6 +26,14 @@ sources the report names:
 Every exclusion is printed on each run, and the total is capped so they cannot
 accumulate unnoticed.
 
+Defaulted special members
+-------------------------
+A function declared `= default` is skipped for both line and function coverage.
+A compiler-generated body has no behaviour a test could assert, so requiring one
+to be "covered" only buys tests that exist to call a destructor and assert
+nothing. The count is printed on each run so the rule stays visible, but it is
+not an exclusion and does not count against `--max-exclusions`.
+
 Usage:
     python scripts/check-coverage.py build/x64-coverage/coverage.lcov \\
         --lines 100 --branches 100 --functions 100
@@ -45,6 +53,11 @@ EXCL_START = "LCOV_EXCL_START"
 EXCL_STOP = "LCOV_EXCL_STOP"
 EXCL_BR_LINE = "LCOV_EXCL_BR_LINE"
 
+# `= default;` on a special member. A compiler-generated body has no behaviour a
+# test could assert, so counting one only buys a test that exists to call a
+# destructor. See "Defaulted special members" in the module docstring.
+DEFAULTED = re.compile(r"=\s*default\s*;")
+
 
 @dataclass
 class Exclusion:
@@ -63,6 +76,7 @@ class SourceExclusions:
     lines: set[int] = field(default_factory=set)
     branch_lines: set[int] = field(default_factory=set)
     records: list[Exclusion] = field(default_factory=list)
+    defaulted: set[int] = field(default_factory=set)
 
 
 def read_exclusions(path: str) -> SourceExclusions:
@@ -101,6 +115,11 @@ def read_exclusions(path: str) -> SourceExclusions:
             result.lines.add(number)
             result.branch_lines.add(number)
             result.records.append(Exclusion(path, number, EXCL_LINE, raw.strip()))
+        elif DEFAULTED.search(raw):
+            # Deliberately not an Exclusion record: this is a property of the
+            # code rather than a judgement call someone has to defend, so it does
+            # not count against --max-exclusions.
+            result.defaulted.add(number)
 
     if in_block:
         # An unterminated block would silently swallow the rest of the file.
@@ -123,6 +142,7 @@ class FileCoverage:
     uncovered_lines: list[int] = field(default_factory=list)
     uncovered_branches: list[int] = field(default_factory=list)
     uncovered_functions: list[tuple[int, str]] = field(default_factory=list)
+    defaulted_functions: int = 0
 
     @staticmethod
     def percentage(hit: int, found: int) -> float:
@@ -168,7 +188,7 @@ def parse_lcov(
         elif line.startswith("DA:"):
             number_text, _, count = line[3:].partition(",")
             number = int(number_text)
-            if number in excluded.lines:
+            if number in excluded.lines or number in excluded.defaulted:
                 continue
             current.lines_found += 1
             if int(count) > 0:
@@ -196,6 +216,9 @@ def parse_lcov(
         elif line == "end_of_record":
             for name, number in function_lines.items():
                 if number in excluded.lines:
+                    continue
+                if number in excluded.defaulted:
+                    current.defaulted_functions += 1
                     continue
                 current.functions_found += 1
                 if function_hits.get(name, 0) > 0:
@@ -226,6 +249,7 @@ def totals(files: list[FileCoverage]) -> FileCoverage:
         total.branches_hit += file.branches_hit
         total.functions_found += file.functions_found
         total.functions_hit += file.functions_hit
+        total.defaulted_functions += file.defaulted_functions
     return total
 
 
@@ -276,6 +300,9 @@ def report(files: list[FileCoverage], max_annotations: int) -> None:
         f"{total.branch_percentage:8.2f}%  "
         f"{total.function_percentage:9.2f}%"
     )
+    if total.defaulted_functions:
+        plural = "s" if total.defaulted_functions != 1 else ""
+        print(f"\n{total.defaulted_functions} defaulted special member{plural} not counted")
 
 
 def write_step_summary(total: FileCoverage) -> None:

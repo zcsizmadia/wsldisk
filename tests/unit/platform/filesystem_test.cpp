@@ -271,11 +271,3 @@ TEST_CASE("the injected table is restored when the scope ends", "[platform][win3
     // Back to the real API: the Windows directory is always there.
     CHECK(fs.exists("C:\\Windows"));
 }
-
-TEST_CASE("a filesystem owned through the interface destroys cleanly", "[platform][fs]") {
-    // Operations hold an IFileSystem, so the base is destroyed polymorphically.
-    // Without this the virtual destructor is never actually called anywhere.
-    const std::unique_ptr<IFileSystem> fs = std::make_unique<Win32FileSystem>();
-
-    CHECK(fs->exists("C:\\Windows"));
-}

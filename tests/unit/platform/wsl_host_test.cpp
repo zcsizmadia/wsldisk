@@ -602,15 +602,6 @@ TEST_CASE("unmount detaches the disk", "[platform][wsl]") {
     CHECK(process.command_line == LR"(wsl.exe --unmount C:\wsl\ext4.vhdx)");
 }
 
-TEST_CASE("a host owned through the interface destroys cleanly", "[platform][wsl]") {
-    // Operations hold an IWslHost, so the base is destroyed polymorphically.
-    FakeProcess process;
-    const ScopedWin32Api scoped{table_for(process)};
-
-    const std::unique_ptr<wsldisk::IWslHost> host = std::make_unique<WslExeHost>();
-    CHECK(host->shutdown().has_value());
-}
-
 TEST_CASE("run_wsl drains output larger than one read chunk", "[platform][wsl]") {
     // The read buffer is 8 KiB and a pipe holds 64 KiB, so anything a guest
     // command actually prints takes several passes through the drain loop.

@@ -70,16 +70,29 @@ integration suite imports.
   the `Win32Api` table in `platform/win32_api.h` so tests can inject failures
 - Every operation gets: `plan()` support for `--dry-run`, a unit test with fakes, an integration test
 - Every user-facing error carries a remedy
+- Tests cover behaviour, not counters. A defaulted (`= default`) special member is
+  not counted for coverage, and code no test can reach is marked with an
+  `LCOV_EXCL_*` comment saying why — see [docs/TESTING.md](docs/TESTING.md). Never
+  delete a defensive check, or reshape working code, to satisfy the instrumenter.
 - Run the whole lint job locally before pushing; it is the easiest check to fail
   from a laptop because most of its tools are not part of a C++ toolchain:
 
   ```powershell
-  .scriptsint.ps1 -Configure
+  . .\scripts\dev-shell.ps1
+  .\scripts\lint.ps1
   ```
 
   It runs clang-format, clang-tidy, actionlint, ruff and pytest, downloading the
   pinned actionlint and ruff binaries on demand, and reports each as pass, fail or
   skipped. markdownlint is skipped when the npm registry is unreachable.
+
+  **clang-format and clang-tidy must be the LLVM version CI pins**, which the
+  script checks and refuses to run without. Visual Studio ships its own copies
+  several major versions behind and puts them on PATH first: its clang-format
+  reformats differently, so a file that is clean locally fails in CI, and its
+  clang-tidy has been seen to crash inside MSVC's `<format>`. Put the standalone
+  LLVM's `bin` ahead of Visual Studio's. The compile database clang-tidy needs is
+  refreshed automatically when it no longer lists every source.
 
 - `.clang-format` is authoritative; run before committing:
 
