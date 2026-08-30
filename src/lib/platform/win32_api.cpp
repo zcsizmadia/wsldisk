@@ -100,6 +100,32 @@ const Win32Api& real_win32_api() {
                 return ::CreateVirtualDisk(storage_type, path, access_mask, security_descriptor, flags,
                                            provider_flags, parameters, overlapped, handle);
             },
+        .create_process =
+            [](LPCWSTR application_name, LPWSTR command_line, LPSECURITY_ATTRIBUTES process_attributes,
+               LPSECURITY_ATTRIBUTES thread_attributes, BOOL inherit_handles, DWORD creation_flags,
+               LPVOID environment, LPCWSTR current_directory, LPSTARTUPINFOW startup_info,
+               LPPROCESS_INFORMATION process_information) {
+                return ::CreateProcessW(application_name, command_line, process_attributes, thread_attributes,
+                                        inherit_handles, creation_flags, environment, current_directory,
+                                        startup_info, process_information);
+            },
+        .create_pipe = [](PHANDLE read_pipe, PHANDLE write_pipe, LPSECURITY_ATTRIBUTES attributes,
+                          DWORD size) { return ::CreatePipe(read_pipe, write_pipe, attributes, size); },
+        .set_handle_information = [](HANDLE object, DWORD mask,
+                                     DWORD flags) { return ::SetHandleInformation(object, mask, flags); },
+        .read_file =
+            [](HANDLE file, LPVOID buffer, DWORD to_read, LPDWORD read, LPOVERLAPPED overlapped) {
+                return ::ReadFile(file, buffer, to_read, read, overlapped);
+            },
+        .peek_named_pipe =
+            [](HANDLE pipe, LPVOID buffer, DWORD buffer_size, LPDWORD read, LPDWORD total_available,
+               LPDWORD left_this_message) {
+                return ::PeekNamedPipe(pipe, buffer, buffer_size, read, total_available, left_this_message);
+            },
+        .get_exit_code_process = [](HANDLE process,
+                                    LPDWORD exit_code) { return ::GetExitCodeProcess(process, exit_code); },
+        .terminate_process = [](HANDLE process,
+                                UINT exit_code) { return ::TerminateProcess(process, exit_code); },
         .close_handle = [](HANDLE handle) { return ::CloseHandle(handle); },
         .create_event =
             [](LPSECURITY_ATTRIBUTES attributes, BOOL manual_reset, BOOL initial_state, LPCWSTR name) {

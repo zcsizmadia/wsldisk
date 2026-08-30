@@ -1,11 +1,14 @@
 #pragma once
 
+#include <chrono>
 #include <cstdint>
 #include <filesystem>
 #include <functional>
 #include <memory>
 #include <optional>
+#include <span>
 #include <string>
+#include <string_view>
 #include <vector>
 
 #include "errors.h"
@@ -93,6 +96,67 @@ public:
     /// how contract tests get a real disk without shelling out to `diskpart`.
     [[nodiscard]] virtual Status create(const std::filesystem::path& path,
                                         std::uint64_t maximum_size) const = 0;
+};
+
+/// What running one `wsl.exe` command produced.
+struct WslCommandResult {
+    /// The process exit code. This is the only success signal that can be
+    /// trusted; the streams carry noise even on a clean run.
+    int exit_code = 0;
+    /// Standard output, decoded to UTF-8.
+    std::string standard_output;
+    /// Standard error, decoded to UTF-8. On a successful `--exec` this still
+    /// holds one `Failed to translate '<path>'` line per Windows PATH entry.
+    std::string standard_error;
+
+    [[nodiscard]] bool succeeded() const noexcept { return exit_code == 0; }
+};
+
+/// Runs `wsl.exe` and reports what it printed.
+///
+/// This is a process wrapper and nothing else. `wslapi.dll` is unusable from an
+/// unpackaged process (spike #3), and everything the registry can answer --
+/// which distributions exist, where their disks are, which is default -- goes
+/// through `IRegistry` instead. Only facts that require a running WSL come from
+/// here.
+///
+/// Nothing in here parses prose. `--quiet` output is names only, and every other
+/// question is answered by an exit code, so a localized Windows does not change
+/// what the tool understands.
+class IWslHost {
+public:
+    IWslHost() = default;
+    IWslHost(const IWslHost&) = delete;
+    IWslHost& operator=(const IWslHost&) = delete;
+    IWslHost(IWslHost&&) = delete;
+    IWslHost& operator=(IWslHost&&) = delete;
+    virtual ~IWslHost() = default;
+
+    /// Names of the distributions that are currently running.
+    [[nodiscard]] virtual Result<std::vector<std::string>> running() const = 0;
+
+    /// Stops one distribution.
+    [[nodiscard]] virtual Status terminate(std::string_view name) const = 0;
+
+    /// Stops every distribution and the utility VM, which is what releases the
+    /// lock on a VHDX so it can be compacted.
+    [[nodiscard]] virtual Status shutdown() const = 0;
+
+    /// Runs a command in the guest as root and captures both streams.
+    ///
+    /// `--exec` does not search PATH, so `argv[0]` must be an absolute guest
+    /// path; a relative one is refused here rather than surfacing as WSL's own
+    /// `execvpe` error. The guest's output is UTF-8, unlike `wsl.exe`'s own.
+    [[nodiscard]] virtual Result<WslCommandResult> run_as_root(std::string_view name,
+                                                               std::span<const std::string> argv,
+                                                               std::chrono::milliseconds timeout) const = 0;
+
+    /// Attaches a VHDX to the utility VM without mounting a filesystem. Needed
+    /// by `shrink` in M2; the process wrapper is the same, so it lives here now.
+    [[nodiscard]] virtual Status mount_bare(const std::filesystem::path& vhdx) const = 0;
+
+    /// Detaches a VHDX attached by `mount_bare`.
+    [[nodiscard]] virtual Status unmount(const std::filesystem::path& vhdx) const = 0;
 };
 
 /// Read access to the WSL registry, plus the one write `relink` needs.

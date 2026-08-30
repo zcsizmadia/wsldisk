@@ -10,6 +10,7 @@
 #include <utility>
 #include <vector>
 
+#include "scoped_handle.h"
 #include "win32_api.h"
 #include "win32_error.h"
 
@@ -32,42 +33,6 @@ std::wstring parent_location(const std::vector<GET_VIRTUAL_DISK_INFO>& storage) 
         bytes / sizeof(wchar_t)};
     return std::wstring{all.substr(0, all.find(L'\0'))};
 }
-
-/// Closes a Win32 handle through the injection table, so a fake table sees the
-/// close as well as the open.
-class ScopedHandle {
-public:
-    ScopedHandle() = default;
-
-    explicit ScopedHandle(HANDLE handle) noexcept : handle_(handle) {}
-
-    ~ScopedHandle() {
-        // Only nullptr is checked. Every producer that fills a ScopedHandle --
-        // OpenVirtualDisk, CreateVirtualDisk, CreateEvent -- reports failure
-        // through a return code or a null handle and never yields
-        // INVALID_HANDLE_VALUE, so testing for it would add a branch no test
-        // could reach. A CreateFile-style producer would need it back.
-        if (handle_ != nullptr) {
-            std::ignore = win32().close_handle(handle_);
-        }
-    }
-
-    ScopedHandle(const ScopedHandle&) = delete;
-    ScopedHandle& operator=(const ScopedHandle&) = delete;
-    ScopedHandle(ScopedHandle&&) = delete;
-    ScopedHandle& operator=(ScopedHandle&&) = delete;
-
-    [[nodiscard]] PHANDLE put() noexcept { return &handle_; }
-
-    [[nodiscard]] HANDLE get() const noexcept { return handle_; }
-
-    /// Hands ownership to the caller, so a guard held across a successful open
-    /// does not close the handle it is about to return.
-    [[nodiscard]] HANDLE release() noexcept { return std::exchange(handle_, nullptr); }
-
-private:
-    HANDLE handle_ = nullptr;
-};
 
 /// The open handle, and the compaction that runs against it.
 class Win32VirtualDiskHandle final : public IVirtualDiskHandle {

@@ -26,17 +26,22 @@ add_library(wsldisk_lib STATIC
 
     model/size.cpp
     model/size.h
+    model/wsl_output.cpp
+    model/wsl_output.h
 
     platform/filesystem.cpp
     platform/filesystem.h
     platform/registry.cpp
     platform/registry.h
+    platform/scoped_handle.h
     platform/virtual_disk.cpp
     platform/virtual_disk.h
     platform/win32_api.cpp
     platform/win32_api.h
     platform/win32_error.cpp
-    platform/win32_error.h)
+    platform/win32_error.h
+    platform/wsl_host.cpp
+    platform/wsl_host.h)
 
 add_library(wsldisk::lib ALIAS wsldisk_lib)
 
