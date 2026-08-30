@@ -11,13 +11,13 @@ namespace wsldisk::platform {
 /// Closes a Win32 handle through the injection table, so a fake table sees the
 /// close as well as the open.
 ///
-/// Both null and INVALID_HANDLE_VALUE are checked. Every producer that fills one
-/// of these today -- OpenVirtualDisk, CreateVirtualDisk, CreateEvent,
-/// CreatePipe, CreateProcess -- reports failure through a return code or a null
-/// handle, so nothing currently reaches the second check and no test can cover
-/// it. It stays anyway: CreateFile-style producers signal failure with
-/// INVALID_HANDLE_VALUE, and a guard that quietly stops guarding the day someone
-/// adds one is worse than an uncoverable branch.
+/// Both null and INVALID_HANDLE_VALUE are checked. Most producers -- the
+/// virtual-disk calls, CreateEvent, CreatePipe, CreateProcess -- report failure
+/// through a return code or a null handle, but CreateFile signals it with
+/// INVALID_HANDLE_VALUE, and closing that would be closing a handle we never
+/// had. The check was briefly deleted for being uncoverable and restored behind
+/// an exclusion; `Win32FileSystem::allocated_ranges` arrived one ticket later
+/// and made it reachable, so the exclusion is gone too.
 class ScopedHandle {
 public:
     ScopedHandle() = default;
@@ -43,7 +43,7 @@ public:
     /// the read end will ever report end-of-file, which is sooner than the
     /// guard would otherwise do it.
     void close() noexcept {
-        if (handle_ != nullptr && handle_ != INVALID_HANDLE_VALUE) {  // LCOV_EXCL_BR_LINE
+        if (handle_ != nullptr && handle_ != INVALID_HANDLE_VALUE) {
             std::ignore = win32().close_handle(std::exchange(handle_, nullptr));
         }
     }

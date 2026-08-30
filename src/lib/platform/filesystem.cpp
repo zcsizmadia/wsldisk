@@ -1,11 +1,20 @@
 #include "filesystem.h"
 
 #include <windows.h>
+// WIN32_LEAN_AND_MEAN leaves out the ioctl definitions, and
+// FSCTL_QUERY_ALLOCATED_RANGES is one of them.
+#include <winioctl.h>
 
 #include <array>
+#include <cstddef>
 #include <format>
+#include <span>
+#include <string>
 #include <string_view>
+#include <utility>
+#include <vector>
 
+#include "scoped_handle.h"
 #include "win32_api.h"
 #include "win32_error.h"
 
@@ -16,6 +25,31 @@ namespace {
 [[nodiscard]] std::uint64_t combine(DWORD high, DWORD low) noexcept {
     return (static_cast<std::uint64_t>(high) << 32) | low;
 }
+
+/// Closes a FindFirstFileEx search through the injection table.
+///
+/// Not ScopedHandle: a search handle is closed with FindClose, and an unused
+/// one is INVALID_HANDLE_VALUE rather than null.
+class ScopedFindHandle {
+public:
+    explicit ScopedFindHandle(HANDLE handle) noexcept : handle_(handle) {}
+
+    ~ScopedFindHandle() {
+        if (handle_ != INVALID_HANDLE_VALUE) {
+            std::ignore = win32().find_close(handle_);
+        }
+    }
+
+    ScopedFindHandle(const ScopedFindHandle&) = delete;
+    ScopedFindHandle& operator=(const ScopedFindHandle&) = delete;
+    ScopedFindHandle(ScopedFindHandle&&) = delete;
+    ScopedFindHandle& operator=(ScopedFindHandle&&) = delete;
+
+    [[nodiscard]] HANDLE get() const noexcept { return handle_; }
+
+private:
+    HANDLE handle_ = INVALID_HANDLE_VALUE;
+};
 
 /// Filesystem and volume names are ASCII in practice; anything else is replaced
 /// rather than guessed at, so the value stays safe to print and compare.
@@ -102,4 +136,138 @@ Result<VolumeInfo> Win32FileSystem::volume_info(const std::filesystem::path& pat
     };
 }
 
+Result<std::vector<DirectoryEntry>> Win32FileSystem::list_directory(const std::filesystem::path& directory,
+                                                                    std::wstring_view pattern) const {
+    const std::filesystem::path query = directory / pattern;
+
+    WIN32_FIND_DATAW found{};
+    // FindExInfoBasic skips the 8.3 short name, which nothing here reads and
+    // which the filesystem would otherwise have to look up per entry.
+    const ScopedFindHandle search{win32().find_first_file_ex(query.c_str(), FindExInfoBasic, &found,
+                                                             FindExSearchNameMatch, nullptr, 0)};
+    if (search.get() == INVALID_HANDLE_VALUE) {
+        const DWORD status = win32().get_last_error();
+        // An empty directory, or one where nothing matches, is an answer rather
+        // than a failure -- `orphans` scans several directories and most hold
+        // nothing.
+        if (status == ERROR_FILE_NOT_FOUND || status == ERROR_NO_MORE_FILES) {
+            return std::vector<DirectoryEntry>{};
+        }
+        return std::unexpected(error_from_win32(status, std::format("list {}", directory.string())));
+    }
+
+    std::vector<DirectoryEntry> entries;
+    BOOL another = TRUE;
+    while (another != FALSE) {
+        const std::wstring_view name{static_cast<const wchar_t*>(found.cFileName)};
+        // `.` and `..` are not entries anyone asked for.
+        if (name != L"." && name != L"..") {
+            const bool is_directory = (found.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) != 0;
+            entries.push_back(
+                DirectoryEntry{.path = directory / name,
+                               .size = is_directory ? 0 : combine(found.nFileSizeHigh, found.nFileSizeLow),
+                               .is_directory = is_directory});
+        }
+        another = win32().find_next_file(search.get(), &found);
+    }
+
+    // Reaching the end of the listing is ERROR_NO_MORE_FILES; anything else --
+    // a drive pulled mid-scan -- must not look like a complete answer.
+    if (const DWORD status = win32().get_last_error(); status != ERROR_NO_MORE_FILES) {
+        return std::unexpected(
+            error_from_win32(status, std::format("finish listing {}", directory.string())));
+    }
+    return entries;
+}
+
+Result<std::vector<AllocatedRange>> Win32FileSystem::allocated_ranges(
+    const std::filesystem::path& path) const {
+    const auto length = file_size(path);
+    if (!length.has_value()) {
+        return std::unexpected(length.error());
+    }
+    // An empty file occupies nothing, and asking the filesystem about a
+    // zero-length span is a call with no answer to give.
+    if (*length == 0) {
+        return std::vector<AllocatedRange>{};
+    }
+
+    const ScopedHandle file{win32().create_file(path.c_str(), GENERIC_READ,
+                                                FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
+                                                nullptr, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr)};
+    if (file.get() == INVALID_HANDLE_VALUE) {
+        return std::unexpected(
+            error_from_win32(win32().get_last_error(), std::format("open {}", path.string())));
+    }
+
+    std::vector<AllocatedRange> ranges;
+    FILE_ALLOCATED_RANGE_BUFFER query{};
+    query.FileOffset.QuadPart = 0;
+    query.Length.QuadPart = static_cast<LONGLONG>(*length);
+
+    // The ioctl answers as much as fits and reports ERROR_MORE_DATA, so the
+    // query restarts after the last range it managed to return. The cursor is
+    // unsigned and the query is rebuilt from it each pass, rather than the
+    // signed LARGE_INTEGER being both the state and the loop bound.
+    std::uint64_t offset = 0;
+    while (offset < *length) {
+        query.FileOffset.QuadPart = static_cast<LONGLONG>(offset);
+        query.Length.QuadPart = static_cast<LONGLONG>(*length - offset);
+        std::array<FILE_ALLOCATED_RANGE_BUFFER, 64> answer{};
+        DWORD returned = 0;
+        const BOOL complete =
+            win32().device_io_control(file.get(), FSCTL_QUERY_ALLOCATED_RANGES, &query, sizeof(query),
+                                      answer.data(), static_cast<DWORD>(sizeof(answer)), &returned, nullptr);
+        const DWORD status = complete != FALSE ? ERROR_SUCCESS : win32().get_last_error();
+        if (complete == FALSE && status != ERROR_MORE_DATA) {
+            return std::unexpected(
+                error_from_win32(status, std::format("read the allocated ranges of {}", path.string())));
+        }
+
+        const std::span answered{answer.data(), returned / sizeof(FILE_ALLOCATED_RANGE_BUFFER)};
+        for (const FILE_ALLOCATED_RANGE_BUFFER& entry : answered) {
+            ranges.push_back(AllocatedRange{.offset = static_cast<std::uint64_t>(entry.FileOffset.QuadPart),
+                                            .length = static_cast<std::uint64_t>(entry.Length.QuadPart)});
+        }
+        if (status != ERROR_MORE_DATA) {
+            break;
+        }
+        // Nothing came back but more was promised: continuing would spin.
+        if (answered.empty()) {
+            break;
+        }
+        const FILE_ALLOCATED_RANGE_BUFFER& last = answered.back();
+        offset = static_cast<std::uint64_t>(last.FileOffset.QuadPart) +
+                 static_cast<std::uint64_t>(last.Length.QuadPart);
+    }
+    return ranges;
+}
+
+Status Win32FileSystem::remove(const std::filesystem::path& path) {
+    if (win32().delete_file(path.c_str()) == FALSE) {
+        return std::unexpected(
+            error_from_win32(win32().get_last_error(), std::format("delete {}", path.string())));
+    }
+    return {};
+}
+
+Result<std::filesystem::path> Win32FileSystem::expand_environment(const std::filesystem::path& path) const {
+    const std::wstring source = path.wstring();
+    // The first call sizes the result, including the terminator.
+    const DWORD needed = win32().expand_environment_strings(source.c_str(), nullptr, 0);
+    if (needed == 0) {
+        return std::unexpected(
+            error_from_win32(win32().get_last_error(), std::format("expand {}", path.string())));
+    }
+
+    std::wstring expanded(needed, L'\0');
+    const DWORD written = win32().expand_environment_strings(source.c_str(), expanded.data(), needed);
+    if (written == 0) {
+        return std::unexpected(
+            error_from_win32(win32().get_last_error(), std::format("expand {}", path.string())));
+    }
+    // The count includes the terminator, which does not belong in the path.
+    expanded.resize(written - 1);
+    return std::filesystem::path{expanded};
+}
 }  // namespace wsldisk::platform

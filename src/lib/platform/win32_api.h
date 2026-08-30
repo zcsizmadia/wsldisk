@@ -34,6 +34,24 @@ struct Win32Api {
     std::function<BOOL(LPCWSTR file_name, LPWSTR volume_path_name, DWORD buffer_length)> get_volume_path_name;
     std::function<DWORD()> get_last_error;
 
+    // Directory enumeration, file deletion and the ioctl behind sparse-range
+    // queries.
+    std::function<HANDLE(LPCWSTR file_name, FINDEX_INFO_LEVELS info_level_id, LPVOID find_file_data,
+                         FINDEX_SEARCH_OPS search_op, LPVOID search_filter, DWORD additional_flags)>
+        find_first_file_ex;
+    std::function<BOOL(HANDLE find_file, LPWIN32_FIND_DATAW find_file_data)> find_next_file;
+    std::function<BOOL(HANDLE find_file)> find_close;
+    std::function<HANDLE(LPCWSTR file_name, DWORD desired_access, DWORD share_mode,
+                         LPSECURITY_ATTRIBUTES security_attributes, DWORD creation_disposition,
+                         DWORD flags_and_attributes, HANDLE template_file)>
+        create_file;
+    std::function<BOOL(HANDLE device, DWORD control_code, LPVOID in_buffer, DWORD in_size, LPVOID out_buffer,
+                       DWORD out_size, LPDWORD bytes_returned, LPOVERLAPPED overlapped)>
+        device_io_control;
+    std::function<BOOL(LPCWSTR file_name)> delete_file;
+    std::function<DWORD(LPCWSTR source, LPWSTR destination, DWORD size)> expand_environment_strings;
+    std::function<void(DWORD milliseconds)> sleep;
+
     // Registry. These return an LSTATUS directly rather than setting the last
     // error, so their wrappers must not consult get_last_error.
     std::function<LSTATUS(HKEY key, LPCWSTR sub_key, DWORD options, REGSAM desired, PHKEY result)>
