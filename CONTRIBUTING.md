@@ -74,8 +74,10 @@ integration suite imports.
   not counted for coverage, and code no test can reach is marked with an
   `LCOV_EXCL_*` comment saying why — see [docs/TESTING.md](docs/TESTING.md). Never
   delete a defensive check, or reshape working code, to satisfy the instrumenter.
-- Run the whole lint job locally before pushing; it is the easiest check to fail
-  from a laptop because most of its tools are not part of a C++ toolchain:
+- Run the whole lint job locally before pushing. **clang-format and clang-tidy
+  no longer run on pull requests** -- they need a vcpkg restore and an LLVM
+  install, which made them one of the two slowest checks gating a review, so
+  they run on `main` instead. Locally is now the first place they run:
 
   ```powershell
   . .\scripts\dev-shell.ps1
