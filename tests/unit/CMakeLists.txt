@@ -16,8 +16,16 @@ wsldisk_add_test_suite(wsldisk_unit_tests unit
     platform/virtual_disk_test.cpp
     platform/win32_error_test.cpp
     platform/wsl_host_test.cpp
-    cli/app_test.cpp)
+    cli/app_test.cpp
+    cli/plumbing_test.cpp
+    cli/render_test.cpp)
 
 target_link_libraries(wsldisk_unit_tests PRIVATE wsldisk::lib wsldisk::cli)
 # The in-memory fakes are shared by every suite that drives an operation.
-target_include_directories(wsldisk_unit_tests PRIVATE "${CMAKE_SOURCE_DIR}/tests/fakes")
+target_include_directories(wsldisk_unit_tests
+    PRIVATE "${CMAKE_SOURCE_DIR}/tests/fakes" "${CMAKE_CURRENT_SOURCE_DIR}/cli")
+
+# Golden files live next to the tests in the source tree, not in the build
+# directory: the diff in a pull request is the review of the user-visible text.
+target_compile_definitions(wsldisk_unit_tests
+    PRIVATE WSLDISK_GOLDEN_DIR="${CMAKE_CURRENT_SOURCE_DIR}/golden")

@@ -1,0 +1,1 @@
+{"allocated_bytes":15032385536,"default":true,"file_size":15032385536,"flavor":"ubuntu","guest_free":966367641600,"guest_used":8589934592,"guid":"{4d1297e9-bac4-4da1-9867-a2ab591e9581}","name":"Ubuntu","os_version":"24.04","reclaimable":6442450944,"size_on_disk":15032385536,"sparse":true,"version":2,"vhdx_path":"C:\\wsl\\Ubuntu\\ext4.vhdx","virtual_size":1099511627776}

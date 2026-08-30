@@ -1,0 +1,2 @@
+NAME    VERSION  SIZE ON DISK  GUEST USED  RECLAIMABLE  PATH
+Ubuntu  2        14.0 GiB      8.0 GiB     6.0 GiB      C:\wsl\Ubuntu\ext4.vhdx

@@ -5,7 +5,18 @@
 #include <string>
 #include <vector>
 
+#include "errors.h"
+#include "options.h"
+
 namespace wsldisk::cli {
+
+/// Prints an error the way the top level does and returns its exit code.
+///
+/// In `--json` mode it goes to stdout as an object, so a script reading stdout
+/// gets a parseable answer whether or not the command worked; otherwise to
+/// stderr, where a human expects it. Never a stack trace either way.
+[[nodiscard]] int report(const Error& error, const GlobalOptions& options, std::ostream& out,
+                         std::ostream& err);
 
 /// Runs one command line and returns the process exit code.
 ///

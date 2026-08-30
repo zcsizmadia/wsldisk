@@ -9,14 +9,32 @@
 #include <vector>
 
 #include "errors.h"
+#include "logger.h"
+#include "options.h"
+#include "render.h"
 #include "version.h"
 
 namespace wsldisk::cli {
+
+int report(const Error& error, const GlobalOptions& options, std::ostream& out, std::ostream& err) {
+    // In JSON mode the error goes to stdout as an object, because a script
+    // reading stdout should get a parseable answer whether or not it worked.
+    // Otherwise it goes to stderr, where a human expects it.
+    if (options.json) {
+        out << to_json_line(error) << '\n';
+    } else {
+        err << "error: " << to_human_line(error) << '\n';
+    }
+    return exit_code_for(error.code);
+}
 
 int run(std::span<const std::string> args, std::ostream& out, std::ostream& err) {
     CLI::App app{"Compact, shrink, move, inspect and snapshot WSL2 virtual disks", "wsldisk"};
     app.set_version_flag("-V,--version", std::string{version_banner()});
     app.require_subcommand(0, 1);
+
+    GlobalOptions options;
+    add_global_options(app, options);
 
     // CLI11 parses in reverse order, so hand it a reversed copy of argv-style input.
     std::vector<std::string> reversed(args.rbegin(), args.rend());
