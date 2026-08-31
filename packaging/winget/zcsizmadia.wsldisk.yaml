@@ -1,0 +1,8 @@
+# yaml-language-server: $schema=https://aka.ms/winget-manifest.version.1.6.0.schema.json
+# The version manifest: which package, which version, and which schema the other
+# two files are written against. `release.yml` substitutes __VERSION__.
+PackageIdentifier: zcsizmadia.wsldisk
+PackageVersion: __VERSION__
+DefaultLocale: en-US
+ManifestType: version
+ManifestVersion: 1.6.0

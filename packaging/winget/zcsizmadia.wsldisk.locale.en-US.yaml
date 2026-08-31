@@ -1,0 +1,53 @@
+# yaml-language-server: $schema=https://aka.ms/winget-manifest.defaultLocale.1.6.0.schema.json
+PackageIdentifier: zcsizmadia.wsldisk
+PackageVersion: __VERSION__
+PackageLocale: en-US
+
+Publisher: Zoltan Csizmadia
+PublisherUrl: https://github.com/zcsizmadia
+PublisherSupportUrl: https://github.com/zcsizmadia/wsldisk/issues
+
+PackageName: wsldisk
+PackageUrl: https://github.com/zcsizmadia/wsldisk
+License: MIT
+LicenseUrl: https://github.com/zcsizmadia/wsldisk/blob/main/LICENSE
+Copyright: Copyright (c) Zoltan Csizmadia
+
+ShortDescription: Compact, shrink, move, inspect and snapshot WSL2 virtual disks
+Description: |-
+  Every WSL2 distribution — and Docker Desktop's data volume — lives in an
+  ext4.vhdx file that only ever grows. Deleting files inside the distribution
+  does not give the space back to Windows.
+
+  wsldisk reclaims it: fstrim inside the guest, then an unattached
+  CompactVirtualDisk, which needs no administrator rights and no Hyper-V
+  PowerShell module. That last part is the point — it works on Windows Home,
+  where Optimize-VHD does not exist.
+
+  It also shows where the space went (list, info), tells a filesystem to release
+  its unused blocks without stopping anything (trim), and finds virtual disks
+  that no distribution claims (orphans).
+
+  Every command has --json output and exit codes that mean something. WSL2 only:
+  WSL1 distributions have no virtual disk, and wsldisk says so rather than
+  pretending.
+
+Moniker: wsldisk
+Tags:
+  - wsl
+  - wsl2
+  - vhdx
+  - disk
+  - compact
+  - cleanup
+  - devops
+
+ReleaseNotesUrl: https://github.com/zcsizmadia/wsldisk/releases/tag/v__VERSION__
+Documentations:
+  - DocumentLabel: Compaction
+    DocumentUrl: https://github.com/zcsizmadia/wsldisk/blob/main/docs/COMPACT.md
+  - DocumentLabel: JSON output
+    DocumentUrl: https://github.com/zcsizmadia/wsldisk/blob/main/docs/JSON.md
+
+ManifestType: defaultLocale
+ManifestVersion: 1.6.0
