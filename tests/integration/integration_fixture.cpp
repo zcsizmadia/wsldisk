@@ -2,9 +2,12 @@
 
 #include <windows.h>
 
+#include <algorithm>
 #include <array>
+#include <cctype>
 #include <cstdio>
 #include <cstdlib>
+#include <format>
 #include <string>
 
 #include "platform/filesystem.h"
@@ -32,18 +35,43 @@ std::string quoted(const std::filesystem::path& path) {
     return "\"" + path.string() + "\"";
 }
 
-}  // namespace
-
-bool integration_enabled() {
+/// Whether an environment variable is set to anything but "0".
+[[nodiscard]] bool flag_is_set(const char* name) {
     std::size_t length = 0;
     std::array<char, 16> value{};
-    if (::getenv_s(&length, value.data(), value.size(), "WSLDISK_INTEGRATION") != 0 || length == 0) {
+    if (::getenv_s(&length, value.data(), value.size(), name) != 0 || length == 0) {
         return false;
     }
     return std::string{value.data()} != "0";
 }
 
-ProcessResult run_wsl(const std::vector<std::string>& arguments) {
+/// The first whitespace-separated word of `text`.
+///
+/// `sha256sum` prints "<hash>  <path>"; only the hash is wanted, and a guest
+/// path with a space in it would otherwise arrive attached to it.
+[[nodiscard]] std::string first_word(std::string_view text) {
+    const auto begin = text.find_first_not_of(" \t\r\n");
+    if (begin == std::string_view::npos) {
+        return {};
+    }
+    const auto end = text.find_first_of(" \t\r\n", begin);
+    return std::string{text.substr(begin, end == std::string_view::npos ? end : end - begin)};
+}
+
+}  // namespace
+
+bool integration_enabled() {
+    return flag_is_set("WSLDISK_INTEGRATION");
+}
+
+bool running_on_ci() {
+    // What every CI system this could plausibly run on sets, GitHub Actions
+    // included. Absent means somebody's desktop, and being wrong that way round
+    // only costs a warning nobody needed.
+    return flag_is_set("CI");
+}
+
+ProcessResult run_wsl(std::span<const std::string> arguments) {
     std::string command = "\"wsl.exe\"";
     for (const auto& argument : arguments) {
         command += " " + argument;
@@ -81,8 +109,18 @@ std::filesystem::path pinned_rootfs() {
     return {};
 }
 
-TempDistro::TempDistro(const std::string& suffix)
-    : name_("wsldisk-test-" + suffix + "-" + std::to_string(::GetCurrentProcessId())),
+std::optional<std::string> integration_blocker() {
+    if (!integration_enabled()) {
+        return "set WSLDISK_INTEGRATION=1 to run integration tests";
+    }
+    if (pinned_rootfs().empty()) {
+        return "run scripts/fetch-fixtures.ps1 to download the pinned rootfs";
+    }
+    return std::nullopt;
+}
+
+ScratchDistro::ScratchDistro(std::string_view label)
+    : name_(std::format("wsldisk-test-{}-{}", label, ::GetCurrentProcessId())),
       directory_(std::filesystem::temp_directory_path() / name_) {
     const std::filesystem::path rootfs = pinned_rootfs();
     if (rootfs.empty()) {
@@ -92,16 +130,17 @@ TempDistro::TempDistro(const std::string& suffix)
     std::error_code ignored;
     std::filesystem::create_directories(directory_, ignored);
 
-    const ProcessResult imported =
-        run_wsl({"--import", name_, quoted(directory_), quoted(rootfs), "--version", "2"});
-    imported_ = imported.exit_code == 0;
+    const std::vector<std::string> import{"--import",     name_,       quoted(directory_),
+                                          quoted(rootfs), "--version", "2"};
+    imported_ = run_wsl(import).exit_code == 0;
 }
 
-TempDistro::~TempDistro() {
+ScratchDistro::~ScratchDistro() {
     if (imported_) {
         // Unregister deletes the disk wherever BasePath now points, which is
         // the point: a test that moved it must not leave one behind.
-        static_cast<void>(run_wsl({"--unregister", name_}));
+        const std::vector<std::string> unregister{"--unregister", name_};
+        static_cast<void>(run_wsl(unregister));
     }
     std::error_code ignored;
     std::filesystem::remove_all(directory_, ignored);
@@ -110,15 +149,27 @@ TempDistro::~TempDistro() {
     }
 }
 
-ProcessResult TempDistro::run(const std::string& command) const {
-    return run_wsl({"-d", name_, "--exec", command});
+ProcessResult ScratchDistro::run(std::span<const std::string> argv) const {
+    std::vector<std::string> command{"-d", name_, "--exec"};
+    command.insert(command.end(), argv.begin(), argv.end());
+    return run_wsl(command);
 }
 
-void TempDistro::terminate() const {
-    static_cast<void>(run_wsl({"--terminate", name_}));
+ProcessResult ScratchDistro::run(const std::string& program) const {
+    const std::array<std::string, 1> argv{program};
+    return run(argv);
 }
 
-bool TempDistro::release_disk() const {
+bool ScratchDistro::boots() const {
+    return run("/bin/true").exit_code == 0;
+}
+
+void ScratchDistro::terminate() const {
+    const std::vector<std::string> arguments{"--terminate", name_};
+    static_cast<void>(run_wsl(arguments));
+}
+
+bool ScratchDistro::release_disk() const {
     const platform::Win32FileSystem filesystem;
     const auto free_now = [&filesystem, this]() {
         const auto locked = filesystem.is_locked(vhdx());
@@ -133,7 +184,17 @@ bool TempDistro::release_disk() const {
         ::Sleep(500);
     }
 
-    static_cast<void>(run_wsl({"--shutdown"}));
+    // The fallback stops every distribution on the machine (D9). On a runner
+    // that is nobody's problem; on a desktop the developer deserves to know why
+    // their other windows just went quiet.
+    if (!running_on_ci()) {
+        std::fprintf(stderr,
+                     "wsldisk integration: %s still holds its disk after terminate; running "
+                     "`wsl --shutdown`, which stops every distribution on this machine.\n",
+                     name_.c_str());
+    }
+    const std::vector<std::string> shutdown{"--shutdown"};
+    static_cast<void>(run_wsl(shutdown));
     for (int attempt = 0; attempt < 40; ++attempt) {
         if (free_now()) {
             return true;
@@ -143,18 +204,63 @@ bool TempDistro::release_disk() const {
     return false;
 }
 
-bool TempDistro::set_sparse(bool sparse) const {
+bool ScratchDistro::set_sparse(bool sparse) const {
     // Changing it needs the disk free, and terminating alone does not do that:
     // the utility VM holds every attached disk while any distribution runs
     // (D9). `release_disk` is the thing that actually gets it back.
     if (!release_disk()) {
         return false;
     }
-    const ProcessResult result = run_wsl({"--manage", name_, "--set-sparse", sparse ? "true" : "false"});
-    return result.exit_code == 0;
+    const std::vector<std::string> arguments{"--manage", name_, "--set-sparse", sparse ? "true" : "false"};
+    return run_wsl(arguments).exit_code == 0;
 }
 
-void TempDistro::also_remove(std::filesystem::path path) {
+bool ScratchDistro::write_junk(std::uint64_t megabytes) const {
+    const std::vector<std::string> argv{
+        "/bin/dd",   "if=/dev/urandom", "of=/junk.bin", "bs=1M", std::format("count={}", megabytes),
+        "conv=fsync"};
+    if (run(argv).exit_code != 0) {
+        return false;
+    }
+    // Belt and braces: `conv=fsync` flushes the file, `sync` flushes the
+    // filesystem metadata that says how big it is.
+    return run("/bin/sync").exit_code == 0;
+}
+
+bool ScratchDistro::delete_junk() const {
+    const std::array<std::string, 2> argv{"/bin/rm", "/junk.bin"};
+    return run(argv).exit_code == 0;
+}
+
+std::optional<std::string> ScratchDistro::file_hash(const std::string& guest_path) const {
+    // `/usr/bin`, not `/bin`: on Alpine `sha256sum` is a busybox symlink that
+    // only exists under /usr/bin, and on merged-usr distributions /bin points
+    // at /usr/bin anyway. Guessing /bin here failed on the fixture itself.
+    const std::array<std::string, 2> argv{"/usr/bin/sha256sum", guest_path};
+    const ProcessResult result = run(argv);
+    if (result.exit_code != 0) {
+        return std::nullopt;
+    }
+
+    // The guest's output is mixed with wsl.exe's own stderr chatter -- one
+    // "Failed to translate" line per Windows PATH entry on every --exec. The
+    // hash is the first 64-character hex word anywhere in it.
+    for (std::string_view rest = result.output; !rest.empty();) {
+        const auto newline = rest.find('\n');
+        const std::string_view line = rest.substr(0, newline);
+        rest = newline == std::string_view::npos ? std::string_view{} : rest.substr(newline + 1);
+
+        const std::string word = first_word(line);
+        if (word.size() == 64 && std::ranges::all_of(word, [](unsigned char character) {
+                return std::isxdigit(character) != 0;
+            })) {
+            return word;
+        }
+    }
+    return std::nullopt;
+}
+
+void ScratchDistro::also_remove(std::filesystem::path path) {
     extra_.push_back(std::move(path));
 }
 

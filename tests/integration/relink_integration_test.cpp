@@ -28,9 +28,8 @@ using wsldisk::ops::RunOptions;
 using wsldisk::platform::Win32FileSystem;
 using wsldisk::platform::Win32Registry;
 using wsldisk::platform::WslExeHost;
-using wsldisk::testing::integration_enabled;
-using wsldisk::testing::pinned_rootfs;
-using wsldisk::testing::TempDistro;
+using wsldisk::testing::integration_blocker;
+using wsldisk::testing::ScratchDistro;
 
 namespace {
 
@@ -67,11 +66,8 @@ public:
 
 /// Skips unless real WSL and the pinned rootfs are both available.
 [[nodiscard]] bool ready() {
-    if (!integration_enabled()) {
-        SKIP("set WSLDISK_INTEGRATION=1 to run integration tests");
-    }
-    if (pinned_rootfs().empty()) {
-        SKIP("run scripts/fetch-fixtures.ps1 to download the pinned rootfs");
+    if (const auto blocker = integration_blocker(); blocker.has_value()) {
+        SKIP(*blocker);
     }
     return true;
 }
@@ -83,7 +79,7 @@ TEST_CASE("relink follows a disk that moved and the distribution still boots", "
         return;
     }
 
-    TempDistro distro{"relink"};
+    ScratchDistro distro{"relink"};
     REQUIRE(distro.valid());
     // Nothing may hold the disk open while it is moved.
     REQUIRE(distro.release_disk());
@@ -122,7 +118,7 @@ TEST_CASE("a relink that cannot boot leaves the distribution as it was", "[integ
         return;
     }
 
-    TempDistro distro{"rollback"};
+    ScratchDistro distro{"rollback"};
     REQUIRE(distro.valid());
     REQUIRE(distro.release_disk());
 
