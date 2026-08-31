@@ -2,6 +2,7 @@
 
 #include <catch2/catch_test_macros.hpp>
 
+#include <filesystem>
 #include <string>
 
 using wsldisk::model::to_utf8;
@@ -130,4 +131,24 @@ TEST_CASE("to_wide keeps text after a truncated sequence", "[model][text]") {
     // than a continuation, so it is not consumed with the replacement.
     const std::wstring expected{L'\xFFFD', L'A'};
     CHECK(to_wide("\xE4\x41") == expected);
+}
+
+TEST_CASE("path_to_utf8 does not go through the active code page", "[model][text]") {
+    // `std::filesystem::path::string()` converts through the ACP on MSVC. On a
+    // 932 machine that produces Shift-JIS bytes, which nlohmann's dump() rejects
+    // as invalid UTF-8; on 1252 an unmappable character silently becomes `?`,
+    // giving a path that parses and names a file that does not exist.
+    const std::filesystem::path japanese = LR"(C:\Users\example\テスト\ext4.vhdx)";
+
+    const std::string utf8 = wsldisk::model::path_to_utf8(japanese);
+
+    // The three kana as UTF-8 bytes, whatever this machine's code page is.
+    CHECK(utf8.find("\xe3\x83\x86\xe3\x82\xb9\xe3\x83\x88") != std::string::npos);
+    CHECK(utf8 == wsldisk::model::to_utf8(japanese.wstring()));
+}
+
+TEST_CASE("path_to_utf8 round-trips back to the same path", "[model][text]") {
+    const std::filesystem::path original = LR"(D:\wsl\Übuntu\ext4.vhdx)";
+
+    CHECK(std::filesystem::path{wsldisk::model::to_wide(wsldisk::model::path_to_utf8(original))} == original);
 }

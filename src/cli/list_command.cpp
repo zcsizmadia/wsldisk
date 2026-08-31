@@ -8,6 +8,7 @@
 
 #include "app.h"
 #include "logger.h"
+#include "model/text.h"
 #include "render.h"
 
 namespace wsldisk::cli {
@@ -87,7 +88,7 @@ void render_table(const std::vector<ListRow>& rows, std::ostream& out) {
         table.add_row({Cell{.text = name}, Cell{.text = std::to_string(row.distro.version)},
                        Cell{.text = state}, Cell{.bytes = row.info.size_on_disk},
                        Cell{.bytes = row.info.guest_used}, Cell{.bytes = row.info.reclaimable()},
-                       Cell{.text = row.distro.vhdx_path.string()}});
+                       Cell{.text = model::path_to_utf8(row.distro.vhdx_path)}});
     }
     table.render(out);
 }

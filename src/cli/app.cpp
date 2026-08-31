@@ -20,6 +20,7 @@
 #include "list_command.h"
 #include "logger.h"
 #include "model/config.h"
+#include "model/text.h"
 #include "options.h"
 #include "orphans_command.h"
 #include "platform/clock.h"
@@ -162,17 +163,23 @@ void report_failure(std::ostream& err, const char* what) noexcept {
 
 }  // namespace
 
-int main_entry(int argc, char** argv, std::ostream& out, std::ostream& err) noexcept {
+int main_entry(int argc, wchar_t** argv, std::ostream& out, std::ostream& err) noexcept {
     try {
         // A span rather than pointer arithmetic on argv, and argc is not assumed
         // to be at least one.
-        const std::span<char* const> raw_arguments{argv, static_cast<std::size_t>(argc)};
+        const std::span<wchar_t* const> raw_arguments{argv, static_cast<std::size_t>(argc)};
         const std::size_t skip = raw_arguments.empty() ? 0 : 1;
 
+        // Wide, and converted here through the same codec the registry goes
+        // through. Narrow `main` hands over arguments already flattened to the
+        // active code page, so a distribution named with any character the ACP
+        // cannot represent could never match: `wsldisk info Ubuntu` with a
+        // non-ASCII name reported `distro-not-found` and then listed the name
+        // the user had just typed among the suggestions.
         std::vector<std::string> arguments;
         arguments.reserve(raw_arguments.size() - skip);
-        for (char* const argument : raw_arguments.subspan(skip)) {
-            arguments.emplace_back(argument);
+        for (wchar_t* const argument : raw_arguments.subspan(skip)) {
+            arguments.push_back(model::to_utf8(argument));
         }
 
         return run(arguments, out, err);

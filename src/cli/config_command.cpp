@@ -9,6 +9,7 @@
 #include "app.h"
 #include "logger.h"
 #include "model/config.h"
+#include "model/text.h"
 #include "platform/editor.h"
 #include "render.h"
 
@@ -18,7 +19,7 @@ namespace {
 /// Prints every setting, and the read-only `.wslconfig` keys under it.
 void render_settings(const model::Config& config, const model::WslConfig& wsl,
                      const std::filesystem::path& path, std::ostream& out) {
-    out << path.string() << "\n\n";
+    out << model::path_to_utf8(path) << "\n\n";
 
     Details settings;
     for (const std::string& key : model::config_keys()) {
@@ -49,7 +50,7 @@ void render_settings(const model::Config& config, const model::WslConfig& wsl,
 void render_settings_json(const model::Config& config, const model::WslConfig& wsl,
                           const std::filesystem::path& path, std::ostream& out) {
     nlohmann::json object;
-    object["path"] = path.string();
+    object["path"] = model::path_to_utf8(path);
     for (const std::string& key : model::config_keys()) {
         object["settings"][key] = model::get_config_value(config, key).value_or("");
     }
@@ -120,8 +121,8 @@ void render_settings_json(const model::Config& config, const model::WslConfig& w
     }
 
     if (global.dry_run) {
-        out << "--dry-run: " << path.string() << " was not changed. It would have set " << options.key
-            << " = " << model::get_config_value(config, options.key).value_or("") << '\n';
+        out << "--dry-run: " << model::path_to_utf8(path) << " was not changed. It would have set "
+            << options.key << " = " << model::get_config_value(config, options.key).value_or("") << '\n';
         return exit_code_success;
     }
 
@@ -144,7 +145,7 @@ void render_settings_json(const model::Config& config, const model::WslConfig& w
     }
 
     if (global.dry_run) {
-        out << "--dry-run: would open " << path.string() << '\n';
+        out << "--dry-run: would open " << model::path_to_utf8(path) << '\n';
         return exit_code_success;
     }
     if (const Status opened = launch(path); !opened.has_value()) {

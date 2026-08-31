@@ -72,7 +72,7 @@ protected:
 TEST_CASE("main_entry drops argv[0] and runs the rest", "[cli]") {
     std::ostringstream out;
     std::ostringstream err;
-    std::array<char*, 2> argv{const_cast<char*>("wsldisk"), const_cast<char*>("--version")};
+    std::array<wchar_t*, 2> argv{const_cast<wchar_t*>(L"wsldisk"), const_cast<wchar_t*>(L"--version")};
 
     const int exit_code = wsldisk::cli::main_entry(static_cast<int>(argv.size()), argv.data(), out, err);
 
@@ -97,7 +97,7 @@ TEST_CASE("main_entry reports an exception instead of letting it escape", "[cli]
     // Without this an ostream swallows a streambuf failure into badbit.
     failing_out.exceptions(std::ios::badbit);
     std::ostringstream err;
-    std::array<char*, 2> argv{const_cast<char*>("wsldisk"), const_cast<char*>("--version")};
+    std::array<wchar_t*, 2> argv{const_cast<wchar_t*>(L"wsldisk"), const_cast<wchar_t*>(L"--version")};
 
     // Writing the banner throws; main_entry is noexcept, so it must catch it.
     const int exit_code =
@@ -116,7 +116,7 @@ TEST_CASE("main_entry survives an error stream that is also broken", "[cli]") {
     std::ostream failing_err{&broken_err};
     failing_out.exceptions(std::ios::badbit);
     failing_err.exceptions(std::ios::badbit);
-    std::array<char*, 2> argv{const_cast<char*>("wsldisk"), const_cast<char*>("--version")};
+    std::array<wchar_t*, 2> argv{const_cast<wchar_t*>(L"wsldisk"), const_cast<wchar_t*>(L"--version")};
 
     const int exit_code =
         wsldisk::cli::main_entry(static_cast<int>(argv.size()), argv.data(), failing_out, failing_err);

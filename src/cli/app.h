@@ -31,6 +31,6 @@ namespace wsldisk::cli {
 /// `argv[0]` is dropped. Being `noexcept` is what keeps `main` itself trivial --
 /// the argument copy can allocate, and an exception escaping `main` would surface
 /// as a crash dialog instead of a message.
-[[nodiscard]] int main_entry(int argc, char** argv, std::ostream& out, std::ostream& err) noexcept;
+[[nodiscard]] int main_entry(int argc, wchar_t** argv, std::ostream& out, std::ostream& err) noexcept;
 
 }  // namespace wsldisk::cli

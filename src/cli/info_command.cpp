@@ -105,7 +105,7 @@ void render_details(const ListRow& row, std::ostream& out) {
     details.add("base path", model::to_utf8(row.distro.base_path));
     details.add("vhd file name", row.distro.vhd_file_name.empty() ? "- (absent; defaults to ext4.vhdx)"
                                                                   : model::to_utf8(row.distro.vhd_file_name));
-    details.add("disk path", row.distro.vhdx_path.string());
+    details.add("disk path", model::path_to_utf8(row.distro.vhdx_path));
 
     details.add("modern layout", row.distro.modern ? "yes" : "no");
     details.add("flavor", row.distro.flavor.empty() ? "-" : row.distro.flavor);

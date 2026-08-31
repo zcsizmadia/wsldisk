@@ -11,6 +11,7 @@
 #include "app.h"
 #include "logger.h"
 #include "model/size.h"
+#include "model/text.h"
 #include "relink_command.h"
 #include "render.h"
 
@@ -28,7 +29,7 @@ namespace {
 void render_orphan_table(const std::vector<model::Orphan>& orphans, std::ostream& out) {
     Table table{{"SIZE ON DISK", "PATH"}};
     for (const model::Orphan& orphan : orphans) {
-        table.add_row({Cell{.bytes = orphan.size_on_disk}, Cell{.text = orphan.path.string()}});
+        table.add_row({Cell{.bytes = orphan.size_on_disk}, Cell{.text = model::path_to_utf8(orphan.path)}});
     }
     table.render(out);
 }
@@ -36,7 +37,7 @@ void render_orphan_table(const std::vector<model::Orphan>& orphans, std::ostream
 void render_orphan_json(const std::vector<model::Orphan>& orphans, std::ostream& out) {
     for (const model::Orphan& orphan : orphans) {
         nlohmann::json object;
-        object["path"] = orphan.path.string();
+        object["path"] = model::path_to_utf8(orphan.path);
         if (orphan.size_on_disk.has_value()) {
             object["size_on_disk"] = *orphan.size_on_disk;
         }
@@ -139,7 +140,7 @@ int delete_orphans(const Services& services, const std::vector<model::Orphan>& o
             continue;
         }
         if (*locked) {
-            err << "error: " << orphan.path.string() << " is in use by another process\n";
+            err << "error: " << model::path_to_utf8(orphan.path) << " is in use by another process\n";
             ++failures;
             continue;
         }
@@ -149,7 +150,7 @@ int delete_orphans(const Services& services, const std::vector<model::Orphan>& o
             ++failures;
             continue;
         }
-        out << "deleted " << orphan.path.string() << '\n';
+        out << "deleted " << model::path_to_utf8(orphan.path) << '\n';
     }
 
     if (failures > 0) {

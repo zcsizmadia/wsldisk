@@ -2,6 +2,8 @@
 
 #include <ostream>
 
+#include "model/text.h"
+
 namespace wsldisk::cli {
 
 void NullLogger::warn(std::string_view message) {
@@ -17,7 +19,7 @@ StreamLogger::StreamLogger(std::ostream& stream, bool verbose_enabled, const std
     // are for, which is reconstructing what happened over several attempts.
     file_.open(log_file, std::ios::app);
     if (!file_.is_open()) {
-        *stream_ << "warning: could not open the log file " << log_file.string()
+        *stream_ << "warning: could not open the log file " << model::path_to_utf8(log_file)
                  << "; continuing without it\n";
     }
 }
