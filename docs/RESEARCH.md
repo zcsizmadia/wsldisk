@@ -314,6 +314,77 @@ The integration job runs on hosted `windows-2025`: `wsl --install --no-distribut
 about 1.5 minutes end to end. Nested virtualisation is available on the hosted
 image and no self-hosted runner is needed.
 
+### Fragmented free space (issue #65) — answered, and it contradicts D10
+
+`e4defrag` does nothing. That is the easy half of the answer. The hard half is
+what the measurement turned up on the way: **`compact` can reclaim nothing at
+all**, and how much it reclaims depends entirely on how the free space is
+shaped.
+
+Measured with `spikes/e4defrag/measure.ps1` on a scratch Alpine distribution,
+sparse mode off, 512 MiB written and every other file deleted. Size on disk, in
+bytes:
+
+| | 4 MiB files | 64 KiB files |
+|---|---|---|
+| fragmented baseline | 615,514,112 | 930,086,912 |
+| `fstrim` + compact | 349,175,808 | 930,086,912 |
+| `e4defrag` + `fstrim` + compact | 349,175,808 | 930,086,912 |
+| `wsl --export` + `--import` | 337,641,472 | 339,738,624 |
+
+Two results, and the second is the one that matters.
+
+**With coarse free space** (4 MiB holes) compaction reclaims 43% and a rebuild
+beats it by 3.3% — a gap small enough to be fresh-filesystem overhead rather
+than fragmentation, and not worth a command.
+
+**With fine free space** (64 KiB holes) compaction reclaims **zero bytes**, and
+a rebuild reclaims 63% of the file. Not "less"; nothing.
+
+That was checked rather than assumed, because a clean zero is the shape of a
+command that failed silently. It did not:
+
+```text
+df:      /dev/sdd  1006.9G  138.7M  955.5G   0% /      <- the guest did free it
+fstrim:  /: 1080803397632 bytes trimmed   exit=0       <- discard succeeded
+compact: {"compacted":true,"reclaimed":0,
+          "size_before":502267904,"size_after":502267904}   exit=0
+```
+
+The guest freed the space, `fstrim` discarded it, `CompactVirtualDisk` ran and
+returned success, and the file did not move by a byte.
+
+The mechanism is granularity. `CompactVirtualDisk` works in VHDX blocks — 2 MiB
+by default, which `info` reports as `block_size`. Free space scattered in 64 KiB
+pieces never leaves a whole block free, so there is nothing for compaction to
+give back. `e4defrag` does not help because it defragments *files*, and what
+needs consolidating here is the free space between them.
+
+#### What this changes
+
+**D10 is narrower than it reads.** It records that unattached
+`CompactVirtualDisk` "reclaimed 100% of the freed space", measured in spike #1
+by writing and deleting one large file. That is true, and it is the best case.
+It is not the general case, and nothing said so until now.
+
+**The rebuild in #67 is not optional.** It was filed as "worth having if
+`e4defrag` does not close the gap". `e4defrag` does not close the gap, and the
+gap is not a few percent — it is everything, in the case a real distribution is
+most likely to be in after months of package installs and container layers.
+
+**The user-facing claim needs qualifying.** README and `docs/COMPACT.md` should
+say what compaction can and cannot reclaim, rather than leaving a user whose
+disk did not shrink to conclude the tool is broken. `compact` reporting
+`reclaimed: 0` while exiting 0 is correct and unhelpful; it should say why.
+
+#### Caveats
+
+One machine, one guest, one fragmentation pattern, 512 MiB. The pattern —
+delete every other file — is deliberately adversarial and a real filesystem sits
+somewhere between the two columns. What the numbers establish is that the range
+runs from "reclaims everything" to "reclaims nothing", not where a given
+distribution falls in it.
+
 ### Incidental
 
 `wsl.exe` prints `Failed to translate '<path>'` to stderr for every Windows PATH
