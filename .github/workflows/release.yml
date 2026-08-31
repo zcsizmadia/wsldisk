@@ -1,0 +1,396 @@
+name: release
+
+# Everything a tag produces: a full matrix run, two native Release builds, an
+# SBOM, provenance attestations, Sigstore signatures, a GitHub Release, and a
+# smoke test that downloads what was actually published and runs it.
+#
+# The smoke job is the point of the whole file. Every step before it can succeed
+# while producing a release nobody can use -- a zip missing the binary, a hash
+# that does not match, an attestation over the wrong bytes. The only way to know
+# is to fetch the published artifact on a clean machine and run it.
+
+on:
+  push:
+    tags: ['v*.*.*']
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: An existing tag to build a release from.
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ github.ref }}
+  # Never cancelled. A half-published release is worse than a slow one.
+  cancel-in-progress: false
+
+env:
+  VCPKG_FEATURE_FLAGS: manifests,versions,binarycaching
+
+jobs:
+  # The full matrix, on the tag. Not a reuse of whatever a pull request left
+  # behind: the thing being released has to be the thing that was tested.
+  ci:
+    name: full matrix
+    uses: ./.github/workflows/ci.yml
+    permissions:
+      contents: read
+
+  build:
+    name: build ${{ matrix.architecture }}
+    needs: ci
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 60
+    permissions:
+      contents: read
+      # Keyless signing and provenance both mint an OIDC token.
+      id-token: write
+      attestations: write
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - architecture: x64
+            runner: windows-2025
+            preset: x64-release
+            triplet: x64-windows-static
+          - architecture: arm64
+            runner: windows-11-arm
+            preset: arm64-release
+            triplet: arm64-windows-static
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          ref: ${{ inputs.tag || github.ref }}
+
+      - uses: ./.github/actions/setup-toolchain
+        with:
+          architecture: ${{ matrix.architecture }}
+
+      # Tests off, so the shipped binary's dependency set is the one the SBOM
+      # describes. With the `tests` feature on, vcpkg installs Catch2 and the
+      # SBOM would list a test framework as an input to a released product.
+      - name: Configure
+        shell: pwsh
+        run: |
+          cmake --preset ${{ matrix.preset }} `
+            -DWSLDISK_BUILD_TESTS=OFF `
+            -DVCPKG_MANIFEST_FEATURES=
+
+      - name: Build
+        shell: pwsh
+        run: cmake --build build/${{ matrix.preset }} --config Release
+
+      - name: Smoke test the binary that will ship
+        shell: pwsh
+        run: |
+          $exe = "build/${{ matrix.preset }}/src/cli/Release/wsldisk.exe"
+          & $exe --version
+          if ($LASTEXITCODE -ne 0) { throw "wsldisk --version exited with $LASTEXITCODE" }
+          # `completion` is the one real command that needs no WSL, no registry
+          # and no disk, so it can be exercised on a bare runner.
+          & $exe completion bash > $null
+          if ($LASTEXITCODE -ne 0) { throw "wsldisk completion exited with $LASTEXITCODE" }
+
+      # Built from vcpkg's own SPDX documents rather than by scanning the
+      # binary: it is statically linked, so a scanner finds almost nothing,
+      # while vcpkg knows exactly which port at which version went in.
+      - name: Generate the SBOM
+        shell: pwsh
+        run: |
+          $releaseVersion = '${{ inputs.tag || github.ref_name }}'.TrimStart('v')
+          $spdx = Get-ChildItem `
+            "build/${{ matrix.preset }}/vcpkg_installed/${{ matrix.triplet }}/share" `
+            -Recurse -Filter vcpkg.spdx.json -ErrorAction SilentlyContinue
+          if (-not $spdx) { throw "no vcpkg SPDX documents found; the SBOM would be empty" }
+
+          $components = @()
+          foreach ($file in $spdx) {
+              $document = Get-Content $file.FullName -Raw | ConvertFrom-Json
+              $port = $document.packages | Where-Object { $_.SPDXID -eq 'SPDXRef-port' } |
+                  Select-Object -First 1
+              if (-not $port) { continue }
+              $licenses = @()
+              if ($port.licenseConcluded -and $port.licenseConcluded -ne 'NOASSERTION') {
+                  $licenses = @(@{ license = @{ id = $port.licenseConcluded } })
+              }
+              # vcpkg versions carry a port revision as `3.12.0#2`, and `#`
+              # opens a subpath in a purl -- unencoded it would silently parse
+              # as version 3.12.0 with a subpath of "2".
+              $portVersion = "$($port.versionInfo)"
+              $components += [ordered]@{
+                  type    = 'library'
+                  name    = $port.name
+                  version = $portVersion
+                  purl    = "pkg:vcpkg/$($port.name)@$($portVersion.Replace('#', '%23'))"
+                  licenses = $licenses
+              }
+          }
+
+          $sbom = [ordered]@{
+              bomFormat    = 'CycloneDX'
+              specVersion  = '1.5'
+              version      = 1
+              metadata     = [ordered]@{
+                  timestamp = (Get-Date).ToUniversalTime().ToString('yyyy-MM-ddTHH:mm:ssZ')
+                  component = [ordered]@{
+                      type    = 'application'
+                      name    = 'wsldisk'
+                      version = $releaseVersion
+                      purl    = "pkg:github/${{ github.repository }}@${{ inputs.tag || github.ref_name }}"
+                  }
+                  tools = @(@{ name = 'wsldisk release.yml'; vendor = 'wsldisk' })
+              }
+              components = @($components | Sort-Object name)
+          }
+          $name = "wsldisk-${{ matrix.architecture }}.cdx.json"
+          $sbom | ConvertTo-Json -Depth 12 | Out-File $name -Encoding utf8 -NoNewline
+          Write-Host "SBOM lists $($components.Count) components:"
+          $components | ForEach-Object { Write-Host "  $($_.name) $($_.version)" }
+
+      - name: Stage and zip
+        id: package
+        shell: pwsh
+        run: |
+          $staging = 'staging'
+          New-Item -ItemType Directory -Force -Path $staging | Out-Null
+          Copy-Item "build/${{ matrix.preset }}/src/cli/Release/wsldisk.exe" $staging
+          Copy-Item LICENSE, README.md $staging
+          Copy-Item docs/COMPACT.md, docs/JSON.md $staging
+
+          $zip = "wsldisk-${{ inputs.tag || github.ref_name }}-${{ matrix.architecture }}.zip"
+          Compress-Archive -Path "$staging/*" -DestinationPath $zip -Force
+          "zip=$zip" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+
+          # One line per file, in the format `sha256sum -c` reads.
+          $lines = foreach ($file in @($zip, "wsldisk-${{ matrix.architecture }}.cdx.json")) {
+              (Get-FileHash $file -Algorithm SHA256).Hash.ToLower() + "  $file"
+          }
+          $lines | Out-File "SHA256SUMS-${{ matrix.architecture }}" -Encoding ascii
+          Get-Content "SHA256SUMS-${{ matrix.architecture }}"
+
+      # Provenance: a signed statement that these exact bytes came out of this
+      # workflow, at this commit. `gh attestation verify` checks it, and the
+      # smoke job does exactly that against what was published.
+      - uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8  # v4.2.2
+        with:
+          subject-path: |
+            ${{ steps.package.outputs.zip }}
+            wsldisk-${{ matrix.architecture }}.cdx.json
+
+      - uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6  # v4.1.2
+
+      # Keyless: the certificate binds the signature to this workflow's OIDC
+      # identity, so there is no private key to hold and none to leak.
+      - name: Sign with cosign
+        shell: pwsh
+        env:
+          COSIGN_YES: 'true'
+        run: |
+          foreach ($file in @('${{ steps.package.outputs.zip }}',
+                              "wsldisk-${{ matrix.architecture }}.cdx.json")) {
+              cosign sign-blob $file `
+                  --output-signature "$file.sig" `
+                  --output-certificate "$file.pem"
+              if ($LASTEXITCODE -ne 0) { throw "cosign failed for $file" }
+          }
+
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7.0.1
+        with:
+          name: release-${{ matrix.architecture }}
+          path: |
+            ${{ steps.package.outputs.zip }}
+            wsldisk-${{ matrix.architecture }}.cdx.json
+            SHA256SUMS-${{ matrix.architecture }}
+            *.sig
+            *.pem
+          if-no-files-found: error
+
+  publish:
+    name: publish the release
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: write
+    steps:
+      # Full history: the notes are the commits since the previous tag, and a
+      # shallow clone has neither the tags nor the commits between them.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          ref: ${{ inputs.tag || github.ref }}
+          fetch-depth: 0
+
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c  # v8.0.1
+        with:
+          pattern: release-*
+          merge-multiple: true
+          path: artifacts
+
+      - name: Combine the checksums
+        working-directory: artifacts
+        run: |
+          cat SHA256SUMS-* > SHA256SUMS
+          rm SHA256SUMS-*
+          cat SHA256SUMS
+
+      # Grouped from Conventional Commit subjects rather than from every merge
+      # message: a release page is read by someone deciding whether to upgrade,
+      # and "Merge pull request #57" tells them nothing.
+      - name: Write the release notes
+        id: notes
+        env:
+          TAG: ${{ inputs.tag || github.ref_name }}
+        run: |
+          previous=$(git describe --tags --abbrev=0 "$TAG^" 2>/dev/null || true)
+          if [ -n "$previous" ]; then
+            range="$previous..$TAG"
+            echo "Notes cover $range"
+          else
+            range="$TAG"
+            echo "First tag; notes cover everything up to $TAG"
+          fi
+
+          # 0x1f between subject and hash. A commit subject can contain any
+          # printable character, and `completion powershell|bash|zsh` really did
+          # break a `|` delimiter here -- the notes came out truncated at the
+          # first pipe with the wrong hash beside them.
+          emit() {
+            local pattern="$1" heading="$2"
+            local body
+            body=$(git log --no-merges --pretty=format:'%s%x1f%h' "$range" |
+              grep -E "^$pattern" |
+              sed -E 's/^[a-z]+(\([^)]*\))?!?: *//' |
+              awk -F'\x1f' '{ printf "- %s (%s)\n", $1, $2 }')
+            if [ -n "$body" ]; then
+              printf '### %s\n\n%s\n\n' "$heading" "$body" >> notes.md
+            fi
+          }
+
+          # Every pattern anchors its colon, so a `feat!:` lands under breaking
+          # changes and not under features as well.
+          : > notes.md
+          emit '[a-z]+(\([^)]*\))?!:' 'Breaking changes'
+          emit 'feat(\([^)]*\))?:' 'Features'
+          emit 'fix(\([^)]*\))?:' 'Fixes'
+          emit 'perf(\([^)]*\))?:' 'Performance'
+          emit 'docs(\([^)]*\))?:' 'Documentation'
+          emit '(test|ci|build|chore|refactor)(\([^)]*\))?:' 'Internal'
+
+          if [ ! -s notes.md ]; then
+            echo "No Conventional Commit subjects in $range; falling back to the raw log." >&2
+            git log --no-merges --pretty=format:'- %s (%h)' "$range" > notes.md
+          fi
+
+          cat >> notes.md <<'FOOTER'
+
+          ### Verifying what you downloaded
+
+          ```bash
+          sha256sum -c SHA256SUMS
+          gh attestation verify wsldisk-<version>-<arch>.zip --repo ${{ github.repository }}
+          cosign verify-blob wsldisk-<version>-<arch>.zip \
+              --signature wsldisk-<version>-<arch>.zip.sig \
+              --certificate wsldisk-<version>-<arch>.zip.pem \
+              --certificate-identity-regexp '^https://github.com/${{ github.repository }}/' \
+              --certificate-oidc-issuer https://token.actions.githubusercontent.com
+          ```
+
+          The binaries are not Authenticode-signed yet; SmartScreen will warn on
+          first run. See docs/CI.md for why and what would change it.
+          FOOTER
+
+          cat notes.md
+
+      - name: Create the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ inputs.tag || github.ref_name }}
+        run: |
+          prerelease=""
+          case "$TAG" in *-*) prerelease="--prerelease" ;; esac
+          gh release create "$TAG" \
+            --title "$TAG" \
+            --notes-file notes.md \
+            $prerelease \
+            artifacts/*
+
+  # A machine that has never seen this repository downloads what was published
+  # and runs it. Everything above can pass while producing a release that does
+  # not work; this is what would notice.
+  smoke:
+    name: smoke ${{ matrix.architecture }}
+    needs: publish
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      # `gh attestation verify` reads the attestation from the API.
+      attestations: read
+      id-token: write
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - architecture: x64
+            runner: windows-2025
+          - architecture: arm64
+            runner: windows-11-arm
+    steps:
+      - name: Download the published release
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ inputs.tag || github.ref_name }}
+        run: |
+          gh release download $env:TAG --repo ${{ github.repository }} `
+              --pattern "wsldisk-$env:TAG-${{ matrix.architecture }}.zip" `
+              --pattern 'SHA256SUMS'
+          if ($LASTEXITCODE -ne 0) { throw "could not download the release assets" }
+
+      - name: Check the checksum
+        shell: pwsh
+        run: |
+          $zip = "wsldisk-${{ inputs.tag || github.ref_name }}-${{ matrix.architecture }}.zip"
+          $expected = (Select-String -Path SHA256SUMS -Pattern ([regex]::Escape($zip)) |
+              Select-Object -First 1).Line.Split(' ')[0]
+          if (-not $expected) { throw "$zip is not listed in SHA256SUMS" }
+          $actual = (Get-FileHash $zip -Algorithm SHA256).Hash.ToLower()
+          if ($actual -ne $expected) { throw "checksum mismatch: $actual != $expected" }
+          Write-Host "checksum ok: $actual"
+
+      - name: Verify the provenance attestation
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $zip = "wsldisk-${{ inputs.tag || github.ref_name }}-${{ matrix.architecture }}.zip"
+          gh attestation verify $zip --repo ${{ github.repository }}
+          if ($LASTEXITCODE -ne 0) { throw "provenance verification failed for $zip" }
+
+      - name: Run it
+        shell: pwsh
+        run: |
+          Expand-Archive -Path "wsldisk-${{ inputs.tag || github.ref_name }}-${{ matrix.architecture }}.zip" `
+              -DestinationPath unpacked -Force
+          $exe = 'unpacked/wsldisk.exe'
+
+          & $exe --version
+          if ($LASTEXITCODE -ne 0) { throw "--version exited with $LASTEXITCODE" }
+
+          # `list --json` on a runner with no WSL: exit 3 with a parseable error
+          # object is the correct answer, and 0 with distributions is correct on
+          # one that has it. A crash or unparseable stdout is not.
+          $output = & $exe list --json 2>&1 | Out-String
+          $code = $LASTEXITCODE
+          Write-Host "list --json exited $code with: $output"
+          if ($code -ne 0 -and $code -ne 3) { throw "list --json exited with $code" }
+          foreach ($line in ($output -split "`n" | Where-Object { $_.Trim() })) {
+              $null = $line | ConvertFrom-Json   # throws if stdout is not parseable
+          }
+
+          & $exe completion powershell > $null
+          if ($LASTEXITCODE -ne 0) { throw "completion exited with $LASTEXITCODE" }
