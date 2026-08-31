@@ -102,9 +102,15 @@ jobs:
           # disagreeing. Publishing `wsldisk-v0.2.0-x64.zip` containing a binary
           # that says 0.1.0 is the kind of thing a package manifest makes very
           # public.
-          $expected = '${{ inputs.tag || github.ref_name }}'.TrimStart('v')
+          # Only the core `X.Y.Z`. A semver pre-release or build suffix --
+          # `v0.1.0-rc.1` -- cannot appear in the binary, because CMake's
+          # `project(VERSION)` is numeric and has nowhere to put it. Comparing
+          # the whole tag made every release candidate fail this check, which is
+          # the first thing the first release candidate would have found.
+          $tag = '${{ inputs.tag || github.ref_name }}'.TrimStart('v')
+          $expected = ($tag -split '[-+]')[0]
           if ($reported -notmatch [regex]::Escape($expected)) {
-              throw ("tag $expected does not match the built version: $reported. " +
+              throw ("tag $tag does not match the built version: $reported. " +
                      "Update project(wsldisk VERSION ...) in CMakeLists.txt, or tag the version that is built.")
           }
           # `completion` is the one real command that needs no WSL, no registry
@@ -283,12 +289,20 @@ jobs:
           # printable character, and `completion powershell|bash|zsh` really did
           # break a `|` delimiter here -- the notes came out truncated at the
           # first pipe with the wrong hash beside them.
+          #
+          # Scopes are matched with `[(]` and `[)]`, not `\(` and `\)`. In GNU
+          # grep 3.0's ERE a backslashed paren is *not* a literal paren --
+          # `^feat\(cli\):` does not match `feat(cli): ...`, while
+          # `^feat[(]cli[)]:` does. With the backslash form every scoped commit
+          # was silently dropped: 24 of this repository's 54 commits, including
+          # 15 of its 17 features. The notes looked plausible, which is why it
+          # would have shipped.
           emit() {
             local pattern="$1" heading="$2"
             local body
             body=$(git log --no-merges --pretty=format:'%s%x1f%h' "$range" |
               grep -E "^$pattern" |
-              sed -E 's/^[a-z]+(\([^)]*\))?!?: *//' |
+              sed -E 's/^[a-z]+([(][^)]*[)])?!?: *//' |
               awk -F'\x1f' '{ printf "- %s (%s)\n", $1, $2 }')
             if [ -n "$body" ]; then
               printf '### %s\n\n%s\n\n' "$heading" "$body" >> notes.md
@@ -298,12 +312,12 @@ jobs:
           # Every pattern anchors its colon, so a `feat!:` lands under breaking
           # changes and not under features as well.
           : > notes.md
-          emit '[a-z]+(\([^)]*\))?!:' 'Breaking changes'
-          emit 'feat(\([^)]*\))?:' 'Features'
-          emit 'fix(\([^)]*\))?:' 'Fixes'
-          emit 'perf(\([^)]*\))?:' 'Performance'
-          emit 'docs(\([^)]*\))?:' 'Documentation'
-          emit '(test|ci|build|chore|refactor)(\([^)]*\))?:' 'Internal'
+          emit '[a-z]+([(][^)]*[)])?!:' 'Breaking changes'
+          emit 'feat([(][^)]*[)])?:' 'Features'
+          emit 'fix([(][^)]*[)])?:' 'Fixes'
+          emit 'perf([(][^)]*[)])?:' 'Performance'
+          emit 'docs([(][^)]*[)])?:' 'Documentation'
+          emit '(test|ci|build|chore|refactor)([(][^)]*[)])?:' 'Internal'
 
           if [ ! -s notes.md ]; then
             echo "No Conventional Commit subjects in $range; falling back to the raw log." >&2
