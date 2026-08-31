@@ -58,6 +58,7 @@ untested code is not shipped.
 - No sleeping; use `FakeClock`. No real filesystem or registry in unit tests.
 - `cli::run()` is the one exception, and a dangerous one: it constructs the real registry, filesystem and `wsl.exe` wrapper. A unit test may only hand it flags and `wsldisk-` prefixed placeholder names. `app_test.cpp` once asserted `{"compact", "Ubuntu"}` was an unknown subcommand; when `compact` shipped, that case started running `fstrim` inside the developer's real Ubuntu. `scripts/tests/test_repo_conventions.py` now fails the lint job if any positional there is not a placeholder.
 - Golden files for table and `--json` output under `tests/unit/golden/`, updated only with `--update-golden` and reviewed in the diff.
+- Generated artefacts -- the shell completion scripts -- are golden files too, *and* are handed to the shell they claim to be for in a contract test. A generator can satisfy every "does the script mention this flag" assertion while emitting something no shell will load: an apostrophe in one command description broke the zsh script with every unit assertion still passing. The contract test feeds each script on **stdin**, because on Windows `bash` may be `C:\Windows\System32ash.exe` -- the WSL launcher, which answers a probe happily and then cannot open a Windows path.
 
 ## Definition of done for any change
 

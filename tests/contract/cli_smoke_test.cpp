@@ -202,3 +202,21 @@ TEST_CASE("config refuses a setting that does not exist", "[contract][cli]") {
     CHECK(result.exit_code == 2);
     CHECK(result.output.find("error:") != std::string::npos);
 }
+
+TEST_CASE("the executable emits a completion script", "[contract][cli]") {
+    // `completion` reads nothing and changes nothing, so it can be run for real
+    // here. It also has to work on a machine with no WSL at all, which is often
+    // exactly when someone is setting their shell up.
+    const ProcessOutput result = run_process(quoted_exe() + " completion bash");
+
+    INFO(result.output);
+    CHECK(result.exit_code == 0);
+    CHECK(result.output.find("complete -F _wsldisk wsldisk") != std::string::npos);
+}
+
+TEST_CASE("completion refuses a shell it does not know", "[contract][cli]") {
+    const ProcessOutput result = run_process(quoted_exe() + " completion fish");
+
+    CHECK(result.exit_code == 2);
+    CHECK(result.output.find("error:") != std::string::npos);
+}

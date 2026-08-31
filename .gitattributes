@@ -10,3 +10,9 @@
 *.gz   binary
 *.png  binary
 *.ico  binary
+
+# Golden files are compared byte for byte by the test that owns them, so nothing
+# may rewrite their line endings on the way in or out. Without this the
+# PowerShell completion golden would be checked out CRLF (by the *.ps1 rule
+# above) and compared against LF the generator emits.
+tests/unit/golden/** -text

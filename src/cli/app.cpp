@@ -10,7 +10,9 @@
 #include <string>
 #include <vector>
 
+#include "commands.h"
 #include "compact_command.h"
+#include "completion_command.h"
 #include "config_command.h"
 #include "errors.h"
 #include "info_command.h"
@@ -43,29 +45,14 @@ int report(const Error& error, const GlobalOptions& options, std::ostream& out, 
 
 int run(std::span<const std::string> args, std::ostream& out, std::ostream& err) {
     CLI::App app{"Compact, shrink, move, inspect and snapshot WSL2 virtual disks", "wsldisk"};
-    app.set_version_flag("-V,--version", std::string{version_banner()});
-    app.require_subcommand(0, 1);
 
-    GlobalOptions options;
-    add_global_options(app, options);
-
-    ListOptions list_options;
-    add_list_command(app, options, list_options);
-
-    InfoOptions info_options;
-    add_info_command(app, options, info_options);
-
-    OrphansOptions orphans_options;
-    add_orphans_command(app, options, orphans_options);
-
-    TrimOptions trim_options;
-    add_trim_command(app, options, trim_options);
-
-    CompactCommandOptions compact_options;
-    add_compact_command(app, options, compact_options);
-
-    ConfigOptions config_options;
-    add_config_command(app, options, config_options);
+    // Built by the same function `completion` walks, so a new command or flag
+    // appears in the completions and in the parser or in neither.
+    CommandOptions commands;
+    add_all_commands(app, commands);
+    // A reference rather than a copy: CLI11 writes into `commands.global` as it
+    // parses, so a copy taken here would hold the defaults.
+    const GlobalOptions& options = commands.global;
 
     // CLI11 parses in reverse order, so hand it a reversed copy of argv-style input.
     std::vector<std::string> reversed(args.rbegin(), args.rend());
@@ -85,6 +72,13 @@ int run(std::span<const std::string> args, std::ostream& out, std::ostream& err)
 
     StreamLogger logger{err, options.verbose, options.log_file};
 
+    // Nothing but the command tree, which is already built: no registry, no
+    // filesystem, no WSL. `completion` has to work on a machine where none of
+    // those answer.
+    if (app.got_subcommand("completion")) {
+        return run_completion(commands.completion, options, out, err);
+    }
+
     if (app.got_subcommand("list") || app.got_subcommand("info") || app.got_subcommand("orphans") ||
         app.got_subcommand("trim") || app.got_subcommand("compact") || app.got_subcommand("config")) {
         // The real implementations. Every one is an interface, which is what
@@ -101,28 +95,28 @@ int run(std::span<const std::string> args, std::ostream& out, std::ostream& err)
                                 .clock = &clock};
 
         if (app.got_subcommand("info")) {
-            return run_info(services, info_options, options, logger, out, err);
+            return run_info(services, commands.info, options, logger, out, err);
         }
         if (app.got_subcommand("config")) {
             // `bind_front` rather than a lambda: a lambda here would be a
             // function body no test can reach without launching a real editor.
             const LaunchEditor launch = std::bind_front(&open_in_editor, std::cref(filesystem));
-            return run_config(services, config_options, options, logger, launch, out, err);
+            return run_config(services, commands.config, options, logger, launch, out, err);
         }
         if (app.got_subcommand("compact")) {
-            return run_compact(services, compact_options, options, logger, out, err);
+            return run_compact(services, commands.compact, options, logger, out, err);
         }
         if (app.got_subcommand("trim")) {
-            return run_trim(services, trim_options, options, logger, out, err);
+            return run_trim(services, commands.trim, options, logger, out, err);
         }
         if (app.got_subcommand("orphans")) {
             // The prompt reads the real console. Everything else about the
             // command is driven from interfaces, so the tests answer it
             // themselves rather than typing.
-            return run_orphans(services, orphans_options, options, logger, console_confirm(std::cin, out),
+            return run_orphans(services, commands.orphans, options, logger, console_confirm(std::cin, out),
                                out, err);
         }
-        return run_list(services, list_options, options, logger, out, err);
+        return run_list(services, commands.list, options, logger, out, err);
     }
 
     // Every other command lands later in M1 (see ROADMAP.md).
