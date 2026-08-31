@@ -134,6 +134,21 @@ std::string to_json_line(const Error& error) {
     return object.dump();
 }
 
+void Details::add(std::string key, std::string value) {
+    width_ = std::max(width_, key.size());
+    lines_.emplace_back(std::move(key), std::move(value));
+}
+
+void Details::add(std::string key, const std::optional<std::uint64_t>& bytes) {
+    add(std::move(key), bytes.has_value() ? format_size(*bytes) : "-");
+}
+
+void Details::write(std::ostream& out) const {
+    for (const auto& [key, value] : lines_) {
+        out << key << ':' << std::string(width_ - key.size() + 1, ' ') << value << '\n';
+    }
+}
+
 std::string to_human_line(const Error& error) {
     return error.to_string();
 }

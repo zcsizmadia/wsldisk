@@ -24,6 +24,8 @@ add_library(wsldisk_lib STATIC
     version.h
     "${CMAKE_CURRENT_BINARY_DIR}/version.cpp"
 
+    model/config.cpp
+    model/config.h
     model/disk_info.cpp
     model/disk_info.h
     model/distro.cpp
@@ -50,6 +52,8 @@ add_library(wsldisk_lib STATIC
 
     platform/clock.cpp
     platform/clock.h
+    platform/editor.cpp
+    platform/editor.h
     platform/filesystem.cpp
     platform/filesystem.h
     platform/registry.cpp
@@ -69,6 +73,11 @@ add_library(wsldisk::lib ALIAS wsldisk_lib)
 target_include_directories(wsldisk_lib PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}")
 
 # VirtDisk.lib is the Virtual Disk Service; it is not in the default link set.
-target_link_libraries(wsldisk_lib PUBLIC wsldisk::flags PRIVATE virtdisk uuid)
+# toml++ is PRIVATE: config.cpp is the only translation unit that parses TOML,
+# and the Config struct it hands back is plain C++.
+find_package(tomlplusplus CONFIG REQUIRED)
+target_link_libraries(wsldisk_lib
+    PUBLIC wsldisk::flags
+    PRIVATE virtdisk uuid tomlplusplus::tomlplusplus)
 
 set_target_properties(wsldisk_lib PROPERTIES FOLDER "wsldisk")

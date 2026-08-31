@@ -33,6 +33,10 @@ public:
           remove_failure_(std::move(other.remove_failure_)),
           size_on_disk_failure_(std::move(other.size_on_disk_failure_)),
           directory_failures_(std::move(other.directory_failures_)),
+          write_failure_(std::move(other.write_failure_)),
+          text_(std::move(other.text_)),
+          created_directories_(std::move(other.created_directories_)),
+          variable_failures_(std::move(other.variable_failures_)),
           locked_(std::move(other.locked_)),
           removed_(std::move(other.removed_)) {}
 
@@ -190,12 +194,78 @@ public:
         return {};
     }
 
+    /// Gives `path` text contents, creating it if it is not there.
+    void add_text_file(const std::filesystem::path& path, std::string contents) {
+        File file;
+        file.size = contents.size();
+        file.size_on_disk = contents.size();
+        files_[path.wstring()] = file;
+        text_[path.wstring()] = std::move(contents);
+    }
+
+    /// What a file holds now, after any writes.
+    [[nodiscard]] std::optional<std::string> text_of(const std::filesystem::path& path) const {
+        const auto found = text_.find(path.wstring());
+        return found == text_.end() ? std::nullopt : std::optional{found->second};
+    }
+
+    void fail_write(Error error) { write_failure_ = std::move(error); }
+
+    /// Makes expanding one `%NAME%` fail, leaving every other expansion working.
+    ///
+    /// A command can look up two variables and handle their failures
+    /// differently -- `config` treats a missing `%APPDATA%` as fatal and a
+    /// missing `%USERPROFILE%` as "there is no .wslconfig". Failing every
+    /// expansion can only ever exercise the first.
+    void fail_variable(std::wstring name, Error error) {
+        variable_failures_.insert_or_assign(std::move(name), std::move(error));
+    }
+
+    /// Every directory `create_directories` was asked for, in order.
+    [[nodiscard]] const std::vector<std::wstring>& created_directories() const noexcept {
+        return created_directories_;
+    }
+
+    [[nodiscard]] Result<std::string> read_text_file(const std::filesystem::path& path) const override {
+        if (failure_) {
+            return std::unexpected(*failure_);
+        }
+        const auto found = text_.find(path.wstring());
+        if (found == text_.end()) {
+            return fail(ErrorCode::Preflight, "no such file", "check that the path exists");
+        }
+        return found->second;
+    }
+
+    [[nodiscard]] Status write_text_file(const std::filesystem::path& path,
+                                         std::string_view contents) override {
+        if (write_failure_) {
+            return std::unexpected(*write_failure_);
+        }
+        add_text_file(path, std::string{contents});
+        return {};
+    }
+
+    [[nodiscard]] Status create_directories(const std::filesystem::path& path) override {
+        if (write_failure_) {
+            return std::unexpected(*write_failure_);
+        }
+        created_directories_.push_back(path.wstring());
+        add_directory(path);
+        return {};
+    }
+
     [[nodiscard]] Result<std::filesystem::path> expand_environment(
         const std::filesystem::path& path) const override {
         if (failure_) {
             return std::unexpected(*failure_);
         }
         std::wstring text = path.wstring();
+        for (const auto& [name, error] : variable_failures_) {
+            if (text.find(L"%" + name + L"%") != std::wstring::npos) {
+                return std::unexpected(error);
+            }
+        }
         for (const auto& [name, value] : variables_) {
             const std::wstring token = L"%" + name + L"%";
             for (std::size_t at = text.find(token); at != std::wstring::npos;
@@ -248,6 +318,10 @@ private:
     std::optional<Error> remove_failure_;
     std::optional<Error> size_on_disk_failure_;
     std::map<std::wstring, Error> directory_failures_;
+    std::optional<Error> write_failure_;
+    std::map<std::wstring, std::string> text_;
+    std::vector<std::wstring> created_directories_;
+    std::map<std::wstring, Error> variable_failures_;
     std::set<std::wstring> locked_;
     std::vector<std::wstring> removed_;
 };

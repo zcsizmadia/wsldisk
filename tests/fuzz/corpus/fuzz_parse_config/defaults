@@ -1,0 +1,9 @@
+[scan]
+dirs = []
+
+[compact]
+trim = true
+restart = false
+
+[wsl]
+unlock_timeout_seconds = 5

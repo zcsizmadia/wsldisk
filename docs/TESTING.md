@@ -11,7 +11,7 @@ untested code is not shipped.
 | Unit | `ops/`, `model/`, `cli/` rendering & parsing | Every PR, all platforms | Catch2 v3, fakes for all interfaces |
 | Platform contract | `platform/` wrappers against real Win32 (VHDX create/compact/resize on temp files, registry under a test hive, sparse file ops) | Every PR, Windows runner, **no WSL needed** | Catch2, `HKCU\Software\wsldisk-test` scratch key, `%TEMP%` VHDX files |
 | Integration | End-to-end commands against a throwaway WSL2 distro | Every PR (if hosted runner supports WSL2) or nightly on self-hosted | Catch2 `[integration]` tag, `WSLDISK_INTEGRATION=1` |
-| Fuzz | Registry value parsing, `wsl.exe` output parsing, `manifest.json`, size-string parsing (`64G`) | Nightly | libFuzzer via clang-cl, corpora in `tests/fuzz/corpus/` |
+| Fuzz | Registry value parsing, `wsl.exe` output parsing, `config.toml` and `.wslconfig` parsing, `manifest.json`, size-string parsing (`64G`) | Nightly | libFuzzer via clang-cl, corpora in `tests/fuzz/corpus/` |
 | Mutation (advisory) | Detect tests that pass with mutated code | Weekly | `mull` or manual review of survivors; report only |
 
 ## Coverage

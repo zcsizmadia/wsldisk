@@ -66,31 +66,6 @@ namespace {
     return *value ? "yes" : "no";
 }
 
-/// One `key: value` line, with the keys aligned.
-class Details {
-public:
-    void add(std::string key, std::string value) {
-        width_ = std::max(width_, key.size());
-        lines_.emplace_back(std::move(key), std::move(value));
-    }
-
-    /// A value that could not be measured still gets a line: a missing row is
-    /// invisible, and the point of `info` is to say what is and is not known.
-    void add(std::string key, const std::optional<std::uint64_t>& bytes) {
-        add(std::move(key), bytes.has_value() ? format_size(*bytes) : "-");
-    }
-
-    void write(std::ostream& out) const {
-        for (const auto& [key, value] : lines_) {
-            out << key << ':' << std::string(width_ - key.size() + 1, ' ') << value << '\n';
-        }
-    }
-
-private:
-    std::vector<std::pair<std::string, std::string>> lines_;
-    std::size_t width_ = 0;
-};
-
 }  // namespace
 
 Result<ListRow> gather_one(const Services& services, const InfoOptions& options, ILogger& logger) {

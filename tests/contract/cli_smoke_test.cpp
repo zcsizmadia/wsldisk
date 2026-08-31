@@ -185,3 +185,20 @@ TEST_CASE("compact refuses two targets at once", "[contract][cli]") {
 
     CHECK(result.exit_code == 2);
 }
+
+TEST_CASE("the executable reaches the config command", "[contract][cli]") {
+    // `config path` reads nothing and changes nothing, so the suite can prove
+    // the dispatch works without touching the developer's own config file.
+    const ProcessOutput result = run_process(quoted_exe() + " config path");
+
+    INFO(result.output);
+    CHECK(result.exit_code == 0);
+    CHECK(result.output.find("config.toml") != std::string::npos);
+}
+
+TEST_CASE("config refuses a setting that does not exist", "[contract][cli]") {
+    const ProcessOutput result = run_process(quoted_exe() + " config get wsldisk.no.such.setting");
+
+    CHECK(result.exit_code == 2);
+    CHECK(result.output.find("error:") != std::string::npos);
+}
