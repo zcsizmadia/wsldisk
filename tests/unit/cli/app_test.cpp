@@ -125,9 +125,15 @@ TEST_CASE("main_entry survives an error stream that is also broken", "[cli]") {
 }
 
 TEST_CASE("an unknown subcommand is a usage error", "[cli]") {
-    // Commands land in M1; until then anything positional is rejected rather
-    // than silently ignored.
-    const auto result = invoke({"compact", "Ubuntu"});
+    // Anything positional that is not a subcommand is rejected rather than
+    // silently ignored.
+    //
+    // The name here must be one that will never become a real command. `run()`
+    // wires up the *real* Win32 services, so a name that later becomes a
+    // mutating subcommand would make this unit test act on the machine it runs
+    // on -- which is exactly what happened when `compact` landed and this case
+    // still said `{"compact", "Ubuntu"}`.
+    const auto result = invoke({"wsldisk-not-a-command", "wsldisk-no-such-distro"});
     CHECK(result.exit_code == wsldisk::exit_code_for(wsldisk::ErrorCode::Usage));
     CHECK(result.err.find("error:") != std::string::npos);
 }

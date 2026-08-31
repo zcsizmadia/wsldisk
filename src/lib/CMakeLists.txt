@@ -37,6 +37,8 @@ add_library(wsldisk_lib STATIC
     model/wsl_output.cpp
     model/wsl_output.h
 
+    ops/compact.cpp
+    ops/compact.h
     ops/operation.cpp
     ops/operation.h
     ops/relink.cpp

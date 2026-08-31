@@ -9,6 +9,7 @@ wsldisk_add_test_suite(wsldisk_unit_tests unit
     model/size_test.cpp
     model/text_test.cpp
     model/wsl_output_test.cpp
+    ops/compact_test.cpp
     ops/relink_test.cpp
     ops/runner_test.cpp
     ops/trim_test.cpp
@@ -20,6 +21,7 @@ wsldisk_add_test_suite(wsldisk_unit_tests unit
     platform/win32_error_test.cpp
     platform/wsl_host_test.cpp
     cli/app_test.cpp
+    cli/compact_command_test.cpp
     cli/info_command_test.cpp
     cli/list_command_test.cpp
     cli/lookup_test.cpp

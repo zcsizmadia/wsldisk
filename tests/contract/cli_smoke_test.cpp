@@ -158,3 +158,30 @@ TEST_CASE("trim requires a distribution name", "[contract][cli]") {
 
     CHECK(result.exit_code == 2);
 }
+
+TEST_CASE("the executable reaches the compact command", "[contract][cli]") {
+    // The `compact` quarter of the subcommand dispatch. A name that cannot
+    // exist, so running the suite never compacts anything on this machine.
+    const ProcessOutput result = run_process(quoted_exe() + " compact wsldisk-no-such-distro");
+
+    INFO(result.output);
+    // 10 when the registry could be read and the name is not there, 3 when
+    // there is no WSL on this machine at all.
+    CHECK((result.exit_code == 10 || result.exit_code == 3));
+    CHECK(result.output.find("error:") != std::string::npos);
+}
+
+TEST_CASE("compact needs to be told what to compact", "[contract][cli]") {
+    // Not a default of "everything": a command that reaches for every disk when
+    // given no target would be the worst possible guess.
+    const ProcessOutput result = run_process(quoted_exe() + " compact");
+
+    CHECK(result.exit_code == 2);
+    CHECK(result.output.find("name one distribution") != std::string::npos);
+}
+
+TEST_CASE("compact refuses two targets at once", "[contract][cli]") {
+    const ProcessOutput result = run_process(quoted_exe() + " compact wsldisk-no-such-distro --all");
+
+    CHECK(result.exit_code == 2);
+}

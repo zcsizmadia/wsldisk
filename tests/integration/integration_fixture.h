@@ -72,6 +72,15 @@ public:
     /// suite is using. Returns false if the disk is still held after that.
     [[nodiscard]] bool release_disk() const;
 
+    /// Turns WSL's automatic space reclaim on or off for this distribution.
+    ///
+    /// Off is what `compact` exists for: without sparse mode the .vhdx only
+    /// ever grows, which is the case the whole project is about. WSL 2.5+
+    /// creates disks sparse on some machines, and a test that assumed otherwise
+    /// would pass or fail depending on whose WSL it ran on. Returns false when
+    /// this build of wsl.exe will not do it.
+    [[nodiscard]] bool set_sparse(bool sparse) const;
+
     /// Removes `path` too when this goes out of scope, after the unregister.
     ///
     /// A test that moves the disk somewhere else has a second directory to

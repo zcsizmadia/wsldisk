@@ -1,5 +1,6 @@
 #pragma once
 
+#include <functional>
 #include <map>
 #include <memory>
 #include <optional>
@@ -31,6 +32,7 @@ public:
           compact_failure_(std::move(other.compact_failure_)),
           information_failure_(std::move(other.information_failure_)),
           create_failure_(std::move(other.create_failure_)),
+          on_compact_(std::move(other.on_compact_)),
           opened_(std::move(other.opened_)),
           compacted_(std::move(other.compacted_)),
           created_(std::move(other.created_)) {}
@@ -54,6 +56,16 @@ public:
     void fail_information(Error error) { information_failure_ = std::move(error); }
 
     void fail_create(Error error) { create_failure_ = std::move(error); }
+
+    /// Called after a successful compaction, with the disk's new physical size.
+    ///
+    /// A real compaction shrinks the file on the host volume too, and that is
+    /// the number `compact` reports. This hook lets a test wire the disk fake
+    /// to the filesystem fake so the saving is a consequence of the compaction
+    /// rather than something asserted into existence.
+    void on_compact(std::function<void(const std::filesystem::path&, std::uint64_t)> callback) {
+        on_compact_ = std::move(callback);
+    }
 
     [[nodiscard]] const std::vector<std::wstring>& opened() const noexcept { return opened_; }
 
@@ -119,6 +131,9 @@ private:
             }
             disk.info.physical_size = disk.physical_size_after_compact;
             owner_.compacted_.push_back(path_);
+            if (owner_.on_compact_) {
+                owner_.on_compact_(std::filesystem::path{path_}, disk.info.physical_size);
+            }
             return {};
         }
 
@@ -134,6 +149,7 @@ private:
     std::optional<Error> compact_failure_;
     std::optional<Error> information_failure_;
     std::optional<Error> create_failure_;
+    std::function<void(const std::filesystem::path&, std::uint64_t)> on_compact_;
     mutable std::vector<std::wstring> opened_;
     mutable std::vector<std::wstring> compacted_;
     mutable std::vector<std::wstring> created_;
