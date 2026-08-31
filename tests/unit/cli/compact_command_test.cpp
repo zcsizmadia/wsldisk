@@ -491,3 +491,101 @@ TEST_CASE("the --no-trim flag still wins over a config that asks for trimming", 
     });
     CHECK_FALSE(trimmed);
 }
+
+TEST_CASE("compact --dry-run --json emits the plan as an object", "[cli][compact][json]") {
+    // The contract harness cannot reach this: it runs against the real machine,
+    // where a `--file` target that does not exist is refused at plan time and a
+    // `--all` run finds real distributions. Fakes can.
+    Machine machine;
+    std::ostringstream out;
+
+    const int code = machine.run(CompactCommandOptions{.name = "Ubuntu"},
+                                 GlobalOptions{.json = true, .dry_run = true}, out);
+
+    CHECK(code == exit_code_success);
+    const nlohmann::json object = nlohmann::json::parse(out.str());
+    CHECK(object.at("target") == "Ubuntu");
+    CHECK(object.at("dry_run") == true);
+    CHECK(object.at("steps").is_array());
+    CHECK_FALSE(object.at("steps").empty());
+    // The name heading is human-only; the object carries it.
+    CHECK(out.str().find("Ubuntu:\n") == std::string::npos);
+    CHECK(out.str().find("--dry-run: nothing was changed") == std::string::npos);
+}
+
+TEST_CASE("compact --dry-run --json carries the plan's warnings", "[cli][compact][json]") {
+    // The part a script most needs: "this rewrites the disk file and cannot be
+    // undone" is why someone runs a dry run at all.
+    Machine machine;
+    std::ostringstream out;
+
+    CHECK(machine.run(CompactCommandOptions{.name = "Ubuntu"}, GlobalOptions{.json = true, .dry_run = true},
+                      out) == exit_code_success);
+
+    const nlohmann::json object = nlohmann::json::parse(out.str());
+    REQUIRE(object.contains("warnings"));
+    CHECK(object.at("warnings").at(0).contains("message"));
+    CHECK(object.at("warnings").at(0).contains("remedy"));
+}
+
+TEST_CASE("compact --all --json says nothing when there is nothing to do", "[cli][compact][json]") {
+    // An empty stream, the same answer `orphans --json` gives. A prose line here
+    // made `compact --all --json | jq` fail on a WSL1-only machine -- which is
+    // also why the contract harness cannot see it: this machine has WSL2.
+    Machine machine;
+    machine.registry = hives::wsl1_only();
+    std::ostringstream out;
+
+    const int code = machine.run(CompactCommandOptions{.all = true}, GlobalOptions{.json = true}, out);
+
+    CHECK(code == exit_code_success);
+    CHECK(out.str().empty());
+}
+
+TEST_CASE("compact --file --dry-run --json names the file as the target", "[cli][compact][json]") {
+    // `target` is documented as "the distribution name, or the path for --file".
+    Machine machine;
+    std::ostringstream out;
+
+    const int code = machine.run(CompactCommandOptions{.file = docker_disk.string()},
+                                 GlobalOptions{.json = true, .dry_run = true}, out);
+
+    CHECK(code == exit_code_success);
+    const nlohmann::json object = nlohmann::json::parse(out.str());
+    CHECK(object.at("target") == docker_disk.string());
+    CHECK(object.at("dry_run") == true);
+}
+
+TEST_CASE("compact --file --json reports a failure as a target object", "[cli][compact][json]") {
+    // It used to emit the *error* schema here while a distribution target
+    // emitted the documented per-target object, so a script branching on
+    // `compacted` silently misclassified every --file failure.
+    Machine machine;
+    std::ostringstream out;
+
+    const int code = machine.run(CompactCommandOptions{.file = R"(D:\no-such-file.vhdx)"},
+                                 GlobalOptions{.json = true}, out);
+
+    CHECK(code != exit_code_success);
+    const nlohmann::json object = nlohmann::json::parse(out.str());
+    CHECK(object.at("target") == R"(D:\no-such-file.vhdx)");
+    CHECK(object.at("compacted") == false);
+}
+
+TEST_CASE("compact --file --json reports a compaction that failed as a target object",
+          "[cli][compact][json]") {
+    // The other failure path for a loose file: the plan was fine and the
+    // compaction itself did not work.
+    Machine machine;
+    machine.disks.fail_compact(
+        wsldisk::Error{ErrorCode::Generic, "the compaction failed", "try again after a reboot"});
+    std::ostringstream out;
+
+    const int code =
+        machine.run(CompactCommandOptions{.file = docker_disk.string()}, GlobalOptions{.json = true}, out);
+
+    CHECK(code != exit_code_success);
+    const nlohmann::json object = nlohmann::json::parse(out.str());
+    CHECK(object.at("target") == docker_disk.string());
+    CHECK(object.at("compacted") == false);
+}

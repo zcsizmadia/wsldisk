@@ -148,7 +148,6 @@ _wsldisk() {
                     _arguments \
                         '--help' \
                         '-h' \
-                        '--json' \
                         '--verbose' \
                         '-v' \
                         '--yes' \

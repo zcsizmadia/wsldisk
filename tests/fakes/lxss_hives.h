@@ -158,6 +158,15 @@ inline FakeRegistry dangling_default() {
 }
 
 /// WSL present but nothing installed.
+/// One WSL1 distribution and nothing else. What a machine looks like where
+/// every command that needs a virtual disk has no target (D8).
+inline FakeRegistry wsl1_only() {
+    FakeRegistry registry;
+    registry.add_key(lxss);
+    detail::add_wsl1(registry);
+    return registry;
+}
+
 inline FakeRegistry empty() {
     FakeRegistry registry;
     registry.add_key(lxss);

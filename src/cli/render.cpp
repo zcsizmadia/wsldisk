@@ -154,4 +154,36 @@ std::string to_human_line(const Error& error) {
     return error.to_string();
 }
 
+void render_dry_run(const ops::Plan& plan, std::string_view subject_key, std::string_view subject, bool json,
+                    std::ostream& out) {
+    if (!json) {
+        out << "--dry-run: nothing was changed. It would have:\n";
+        for (const ops::StepPlan& step : plan.steps) {
+            out << "  " << step.description << '\n';
+        }
+        return;
+    }
+
+    nlohmann::json object;
+    object[std::string{subject_key}] = std::string{subject};
+    object["dry_run"] = true;
+    object["steps"] = nlohmann::json::array();
+    for (const ops::StepPlan& step : plan.steps) {
+        object["steps"].push_back(step.description);
+    }
+    // The warnings go too. They are the part a script most needs: "this rewrites
+    // the registry entry" is why someone runs a dry run in the first place.
+    //
+    // Always present, empty array and all. Guarding on `empty()` would add a
+    // branch no test can reach -- every operation's plan carries at least one
+    // warning -- and would make a reader check for the key before reading it,
+    // for no gain.
+    object["warnings"] = nlohmann::json::array();
+    for (const ops::Warning& warning : plan.warnings) {
+        object["warnings"].push_back(
+            nlohmann::json{{"message", warning.message}, {"remedy", warning.remedy}});
+    }
+    out << object.dump() << '\n';
+}
+
 }  // namespace wsldisk::cli

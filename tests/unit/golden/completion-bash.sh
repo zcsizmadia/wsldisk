@@ -37,7 +37,7 @@ _wsldisk() {
         trim) flags='--help -h --json --verbose -v --yes -y --dry-run --log' ;;
         compact) flags='--help -h --json --verbose -v --yes -y --dry-run --log --all --file --no-trim --restart --shutdown' ;;
         config) flags='path get set edit --help -h --json --verbose -v --yes -y --dry-run --log' ;;
-        completion) flags='--help -h --json --verbose -v --yes -y --dry-run --log' ;;
+        completion) flags='--help -h --verbose -v --yes -y --dry-run --log' ;;
         *) COMPREPLY=($(compgen -W "$commands $global" -- "$cur")); return ;;
     esac
 

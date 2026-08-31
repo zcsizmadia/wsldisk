@@ -14,6 +14,7 @@
 #include "ops/relink.h"
 #include "ops/runner.h"
 #include "progress.h"
+#include "render.h"
 
 namespace wsldisk::cli {
 namespace {
@@ -70,10 +71,7 @@ int run_relink(const Services& services, const RelinkOptions& options, const Glo
     }
 
     if (global.dry_run) {
-        out << "--dry-run: nothing was changed. It would have:\n";
-        for (const ops::StepPlan& step : outcome->plan.steps) {
-            out << "  " << step.description << '\n';
-        }
+        render_dry_run(outcome->plan, "distribution", options.name, global.json, out);
         return exit_code_success;
     }
 

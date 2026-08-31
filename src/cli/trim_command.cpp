@@ -13,6 +13,7 @@
 #include "ops/trim.h"
 #include "preflight.h"
 #include "progress.h"
+#include "render.h"
 
 namespace wsldisk::cli {
 namespace {
@@ -73,10 +74,7 @@ int run_trim(const Services& services, const TrimOptions& options, const GlobalO
     }
 
     if (global.dry_run) {
-        out << "--dry-run: nothing was changed. It would have:\n";
-        for (const ops::StepPlan& step : outcome->plan.steps) {
-            out << "  " << step.description << '\n';
-        }
+        render_dry_run(outcome->plan, "distribution", distro->name, global.json, out);
         return exit_code_success;
     }
 

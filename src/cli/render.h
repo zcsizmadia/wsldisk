@@ -11,6 +11,7 @@
 #include "errors.h"
 #include "model/disk_info.h"
 #include "model/distro.h"
+#include "ops/operation.h"
 
 namespace wsldisk::cli {
 
@@ -78,6 +79,19 @@ private:
 /// An error as a JSON object, using the same stable token as `--json` output
 /// elsewhere so a script can branch on it.
 [[nodiscard]] std::string to_json_line(const Error& error);
+
+/// A `--dry-run` plan, in whichever form the caller asked for.
+///
+/// One place because four commands printed this and all four were copies that
+/// ignored `--json`, so `compact --dry-run --json` handed a script prose.
+/// docs/JSON.md promises stdout parses "whether or not the command worked", and
+/// a plan is exactly what a script running a dry run wants to read.
+///
+/// `subject_key` names the field the object is about -- `distribution` for the
+/// per-distribution commands, `target` for `compact`, which may be a loose file
+/// rather than a distribution.
+void render_dry_run(const ops::Plan& plan, std::string_view subject_key, std::string_view subject, bool json,
+                    std::ostream& out);
 
 /// `message -- remedy`, which is what the top-level handler prints.
 [[nodiscard]] std::string to_human_line(const Error& error);

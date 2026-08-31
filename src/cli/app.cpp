@@ -2,6 +2,7 @@
 
 #include <CLI/CLI.hpp>
 
+#include <algorithm>
 #include <exception>
 #include <format>
 #include <functional>
@@ -70,6 +71,19 @@ int run(std::span<const std::string> args, std::ostream& out, std::ostream& err)
         out << app.version() << '\n';
         return exit_code_success;
     } catch (const CLI::ParseError& e) {
+        // `options.json` cannot be trusted here: parsing is what failed, so the
+        // flag may never have been reached. The raw arguments are the only
+        // reliable answer to "did they ask for JSON".
+        //
+        // docs/JSON.md says a failure is one object on stdout, and this was the
+        // one failure that gave a script an exit code and an empty stream --
+        // `wsldisk info --json` with no name left nothing to branch on.
+        if (std::ranges::find(args, "--json") != args.end()) {
+            out << to_json_line(Error{ErrorCode::Usage, e.what(),
+                                      "run `wsldisk --help` to see the arguments this takes"})
+                << '\n';
+            return exit_code_for(ErrorCode::Usage);
+        }
         err << "error: " << e.what() << "\n\n" << app.help();
         return exit_code_for(ErrorCode::Usage);
     }

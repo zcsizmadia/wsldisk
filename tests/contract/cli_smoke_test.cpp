@@ -2,11 +2,13 @@
 // it is what the "wsldisk --version works" roadmap item is checked against.
 
 #include <catch2/catch_test_macros.hpp>
+#include <nlohmann/json.hpp>
 
 #include <array>
 #include <cstdio>
 #include <sstream>
 #include <string>
+#include <vector>
 
 #include "version.h"
 
@@ -239,4 +241,75 @@ TEST_CASE("completion refuses a shell it does not know", "[contract][cli]") {
 
     CHECK(result.exit_code == 2);
     CHECK(result.output.find("error:") != std::string::npos);
+}
+
+TEST_CASE("every command's --json stdout is empty or parses, however it ends", "[contract][cli]") {
+    // The check that would have caught all six of them.
+    //
+    // `--json` was honoured by the happy path of each command and quietly
+    // ignored somewhere else: `orphans --delete` printed a table, a prompt and
+    // a Docker warning; four commands printed their `--dry-run` plan as prose;
+    // three `config` verbs printed bare values; `compact --all` printed a
+    // sentence when there was nothing to do; and a usage error printed nothing
+    // at all. Every one of those was a command whose *other* paths were tested.
+    //
+    // So this asserts the property rather than the paths: whatever a command
+    // does, its stdout under `--json` is either empty or JSON, line by line.
+    //
+    // Every distribution named here is one that cannot exist, so a command that
+    // gets further than the lookup still changes nothing on the machine running
+    // the suite.
+    const std::vector<std::string> commands{
+        "list --json",
+        "list --json --probe",
+        "info wsldisk-no-such-distro --json",
+        "info --json",  // missing positional: a usage error
+        "orphans --json",
+        "orphans --json --scan wsldisk-no-such-directory",
+        "orphans --relink wsldisk-no-such-distro --to wsldisk-no-such-file --json",
+        "orphans --delete --yes --json --scan wsldisk-no-such-directory",
+        "orphans --delete --yes --json --dry-run --scan wsldisk-no-such-directory",
+        "trim wsldisk-no-such-distro --json",
+        "trim wsldisk-no-such-distro --json --dry-run",
+        "trim --json",  // missing positional
+        "relink wsldisk-no-such-distro wsldisk-no-such-file --json",
+        "relink wsldisk-no-such-distro wsldisk-no-such-file --json --dry-run",
+        "relink --json",  // missing positionals
+        "compact wsldisk-no-such-distro --json",
+        "compact wsldisk-no-such-distro --json --dry-run",
+        "compact --file wsldisk-no-such-file --json",
+        "compact --json",  // no target named
+        "config --json",
+        "config path --json",
+        "config get --json",
+        "config get compact.trim --json",
+        "config get wsldisk.no.such.key --json",
+        "config set compact.trim true --json --dry-run",
+        "config set wsldisk.no.such.key x --json",
+        "completion bash --json",  // refused: `completion` prints a script, not data
+        "--not-a-flag --json",     // a usage error before any command
+    };
+
+    for (const std::string& command : commands) {
+        const ProcessOutput result = run_process(quoted_exe() + " " + command);
+
+        INFO("wsldisk " << command);
+        INFO("exit " << result.exit_code);
+        INFO("stdout: " << result.output);
+
+        std::istringstream lines{result.output};
+        std::string line;
+        while (std::getline(lines, line)) {
+            while (!line.empty() && (line.back() == '\r' || line.back() == ' ')) {
+                line.pop_back();
+            }
+            if (line.empty()) {
+                continue;
+            }
+            INFO("line: " << line);
+            // Parsed rather than pattern-matched: `{` at each end would accept
+            // plenty of things no JSON reader will.
+            CHECK_NOTHROW(nlohmann::json::parse(line));
+        }
+    }
 }

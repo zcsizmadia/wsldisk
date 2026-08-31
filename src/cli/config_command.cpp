@@ -95,6 +95,14 @@ void render_settings_json(const model::Config& config, const model::WslConfig& w
 [[nodiscard]] int run_get(const model::Config& config, const ConfigOptions& options,
                           const GlobalOptions& global, std::ostream& out, std::ostream& err) {
     if (options.key.empty()) {
+        if (global.json) {
+            nlohmann::json object;
+            for (const std::string& key : model::config_keys()) {
+                object[key] = model::get_config_value(config, key).value_or("");
+            }
+            out << object.dump() << '\n';
+            return exit_code_success;
+        }
         for (const std::string& key : model::config_keys()) {
             out << key << " = " << model::get_config_value(config, key).value_or("") << '\n';
         }
@@ -108,7 +116,12 @@ void render_settings_json(const model::Config& config, const model::WslConfig& w
         const Status unknown = model::set_config_value(discard, options.key, "");
         return report(unknown.error(), global, out, err);
     }
-    out << *value << '\n';
+    if (global.json) {
+        out << nlohmann::json{{"key", options.key}, {"value", *value}}.dump() << '\n';
+    } else {
+        // On its own line so `for /f` and `$(...)` get the value and nothing else.
+        out << *value << '\n';
+    }
     return exit_code_success;
 }
 
@@ -121,16 +134,31 @@ void render_settings_json(const model::Config& config, const model::WslConfig& w
         return report(set.error(), global, out, err);
     }
 
+    const std::string stored = model::get_config_value(config, options.key).value_or("");
+
     if (global.dry_run) {
-        out << "--dry-run: " << model::path_to_utf8(path) << " was not changed. It would have set "
-            << options.key << " = " << model::get_config_value(config, options.key).value_or("") << '\n';
+        if (global.json) {
+            out << nlohmann::json{{"path", model::path_to_utf8(path)},
+                                  {"dry_run", true},
+                                  {"key", options.key},
+                                  {"value", stored}}
+                       .dump()
+                << '\n';
+        } else {
+            out << "--dry-run: " << model::path_to_utf8(path) << " was not changed. It would have set "
+                << options.key << " = " << stored << '\n';
+        }
         return exit_code_success;
     }
 
     if (const Status written = save(*services.filesystem, path, config); !written.has_value()) {
         return report(written.error(), global, out, err);
     }
-    out << options.key << " = " << model::get_config_value(config, options.key).value_or("") << '\n';
+    if (global.json) {
+        out << nlohmann::json{{"key", options.key}, {"value", stored}}.dump() << '\n';
+    } else {
+        out << options.key << " = " << stored << '\n';
+    }
     return exit_code_success;
 }
 
@@ -146,7 +174,11 @@ void render_settings_json(const model::Config& config, const model::WslConfig& w
     }
 
     if (global.dry_run) {
-        out << "--dry-run: would open " << model::path_to_utf8(path) << '\n';
+        if (global.json) {
+            out << nlohmann::json{{"path", model::path_to_utf8(path)}, {"dry_run", true}}.dump() << '\n';
+        } else {
+            out << "--dry-run: would open " << model::path_to_utf8(path) << '\n';
+        }
         return exit_code_success;
     }
     if (const Status opened = launch(path); !opened.has_value()) {
@@ -209,7 +241,11 @@ int run_config(const Services& services, const ConfigOptions& options, const Glo
     if (options.action == "path") {
         // Printed without reading the file: `config path` has to work even when
         // the file is the thing that is broken.
-        out << path->string() << '\n';
+        if (global.json) {
+            out << nlohmann::json{{"path", path->string()}}.dump() << '\n';
+        } else {
+            out << path->string() << '\n';
+        }
         return exit_code_success;
     }
 

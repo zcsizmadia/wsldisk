@@ -129,13 +129,6 @@ void render_outcome_json(const Outcome& outcome, std::ostream& out) {
     return wsl2;
 }
 
-void render_dry_run(const ops::Plan& plan, std::ostream& out) {
-    out << "--dry-run: nothing was changed. It would have:\n";
-    for (const ops::StepPlan& step : plan.steps) {
-        out << "  " << step.description << '\n';
-    }
-}
-
 /// Compacts a `.vhdx` that no distribution claims.
 ///
 /// Its own function because it has none of the guest steps and none of the
@@ -151,15 +144,32 @@ void render_dry_run(const ops::Plan& plan, std::ostream& out) {
                                     to_operation_options(options, services.config)};
     const auto planned = operation.plan();
     if (!planned.has_value()) {
+        // A refusal is a failed target too. `docs/JSON.md` says `target` is
+        // "the distribution name, or the path for `--file`" and that a failed
+        // target is still an object on stdout -- and a plan-time refusal is the
+        // most common way a `--file` compaction fails, since that is where a
+        // missing or held disk is caught.
+        if (global.json) {
+            render_outcome_json(Outcome{.label = options.file, .failure = planned.error()}, out);
+            return exit_code_for(planned.error().code);
+        }
         return report(planned.error(), global, out, err);
     }
 
     const Outcome outcome = compact_one(operation, options.file, global, sink);
     if (outcome.failure.has_value()) {
+        // docs/JSON.md says `target` is "the distribution name, or the path for
+        // --file", and that a failed target is still an object on stdout. This
+        // path used to emit the *error* schema instead, so a script branching on
+        // `compacted` silently misclassified every `--file` failure.
+        if (global.json) {
+            render_outcome_json(outcome, out);
+            return exit_code_for(outcome.failure->code);
+        }
         return report(*outcome.failure, global, out, err);
     }
     if (global.dry_run) {
-        render_dry_run(*planned, out);
+        render_dry_run(*planned, "target", options.file, global.json, out);
         return exit_code_success;
     }
     if (global.json) {
@@ -194,8 +204,10 @@ void render_dry_run(const ops::Plan& plan, std::ostream& out) {
             outcomes.push_back(Outcome{.label = distro.name, .failure = planned.error()});
             continue;
         }
-        out << distro.name << ":\n";
-        render_dry_run(*planned, out);
+        if (!global.json) {
+            out << distro.name << ":\n";
+        }
+        render_dry_run(*planned, "target", distro.name, global.json, out);
     }
     return outcomes;
 }
@@ -208,7 +220,14 @@ void render_dry_run(const ops::Plan& plan, std::ostream& out) {
     for (const Outcome& outcome : refusals) {
         render_outcome(outcome, err);
     }
-    return refusals.empty() ? exit_code_success : exit_code_for(ErrorCode::Preflight);
+    if (refusals.empty()) {
+        return exit_code_success;
+    }
+    // The refusal's own code, not `Preflight` for all of them. A script that
+    // pre-checks with `--dry-run` and branches on 11 to decide whether
+    // `--shutdown` is needed would never have seen it: the dry run said 3 where
+    // the real run says 11, for the same machine state.
+    return exit_code_for(refusals.front().failure->code);
 }
 
 /// Prints every outcome and returns the exit code for the set.
@@ -290,7 +309,12 @@ int run_compact(const Services& services, const CompactCommandOptions& options, 
     const std::vector<model::Distro>& targets = *chosen;
 
     if (targets.empty()) {
-        out << "no WSL2 distributions to compact\n";
+        // An empty stream under `--json`, the same answer `orphans --json`
+        // gives when it finds nothing. A prose line here made
+        // `compact --all --json | jq` fail on a WSL1-only machine.
+        if (!global.json) {
+            out << "no WSL2 distributions to compact\n";
+        }
         return exit_code_success;
     }
 
