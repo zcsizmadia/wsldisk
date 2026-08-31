@@ -20,6 +20,7 @@
 #include "fake_wsl_host.h"
 #include "logger.h"
 #include "model/config.h"
+#include "model/text.h"
 #include "platform/win32_api.h"
 
 using wsldisk::ErrorCode;
@@ -39,6 +40,7 @@ using wsldisk::testing::FakeFileSystem;
 using wsldisk::testing::FakeRegistry;
 using wsldisk::testing::FakeVirtualDisk;
 using wsldisk::testing::FakeWslHost;
+namespace model = wsldisk::model;
 
 namespace {
 
@@ -613,4 +615,50 @@ TEST_CASE("editor_command leaves a bare program name alone", "[cli][config]") {
     machine.filesystem.set_variable(L"EDITOR", L"vim");
 
     CHECK(editor_command(machine.filesystem) == "vim");
+}
+
+TEST_CASE("config set --json answers with the value as stored", "[cli][config][json]") {
+    // The contract harness cannot reach this: a real `config set` writes the
+    // real config file, so the harness only exercises the dry run.
+    Machine machine;
+    std::ostringstream out;
+
+    const int code = machine.run(ConfigOptions{.action = "set", .key = "compact.trim", .value = "false"},
+                                 GlobalOptions{.json = true}, out);
+
+    CHECK(code == exit_code_success);
+    const nlohmann::json object = nlohmann::json::parse(out.str());
+    CHECK(object.at("key") == "compact.trim");
+    // What was parsed, not what was typed.
+    CHECK(object.at("value") == "false");
+}
+
+TEST_CASE("config set --json --dry-run says what it would have set", "[cli][config][json]") {
+    Machine machine;
+    std::ostringstream out;
+
+    const int code = machine.run(ConfigOptions{.action = "set", .key = "compact.trim", .value = "false"},
+                                 GlobalOptions{.json = true, .dry_run = true}, out);
+
+    CHECK(code == exit_code_success);
+    const nlohmann::json object = nlohmann::json::parse(out.str());
+    CHECK(object.at("dry_run") == true);
+    CHECK(object.at("key") == "compact.trim");
+    CHECK(object.at("path") == model::path_to_utf8(config_file));
+    // Nothing written.
+    CHECK_FALSE(machine.filesystem.text_of(config_file).has_value());
+}
+
+TEST_CASE("config edit --json --dry-run names the file it would open", "[cli][config][json]") {
+    Machine machine;
+    std::ostringstream out;
+
+    const int code =
+        machine.run(ConfigOptions{.action = "edit"}, GlobalOptions{.json = true, .dry_run = true}, out);
+
+    CHECK(code == exit_code_success);
+    const nlohmann::json object = nlohmann::json::parse(out.str());
+    CHECK(object.at("dry_run") == true);
+    CHECK(object.at("path") == model::path_to_utf8(config_file));
+    CHECK(machine.opened.empty());
 }

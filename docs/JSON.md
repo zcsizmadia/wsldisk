@@ -186,6 +186,21 @@ the same strings `config get` prints and `config set` accepts.
 
 `wsldisk` never writes `.wslconfig`.
 
+### The verbs
+
+```json
+{"path":"C:\\Users\\example\\AppData\\Roaming\\wsldisk\\config.toml"}
+{"key":"compact.trim","value":"true"}
+```
+
+| Verb | Object |
+|---|---|
+| `config` | the full settings object, described above |
+| `config path` | `{"path": ...}` |
+| `config get` | every setting as one object |
+| `config get <key>` | `{"key": ..., "value": ...}` |
+| `config set <key> <value>` | `{"key": ..., "value": ...}` — the value as stored, which is what was parsed rather than what was typed |
+
 ## `--dry-run`
 
 Every command that mutates takes `--dry-run`, and under `--json` it emits the
@@ -229,23 +244,6 @@ nothing else. `--yes` still applies.
 **A partial failure exits 5 (`partial`), not 11.** 11 means the disks were held;
 5 means some went and some did not, and the objects say which. Only an attempt
 where *nothing* could be deleted exits 11.
-
-## `config`
-
-Every verb answers with an object.
-
-```json
-{"path":"C:\\Users\\example\\AppData\\Roaming\\wsldisk\\config.toml"}
-{"key":"compact.trim","value":"true"}
-```
-
-| Verb | Object |
-|---|---|
-| `config` | the full settings object, described above |
-| `config path` | `{"path": ...}` |
-| `config get` | every setting as one object |
-| `config get <key>` | `{"key": ..., "value": ...}` |
-| `config set <key> <value>` | `{"key": ..., "value": ...}` — the value as stored, which is what was parsed rather than what was typed |
 
 ## Errors
 
