@@ -24,6 +24,7 @@ wsldisk_add_test_suite(wsldisk_unit_tests unit
     platform/wsl_host_test.cpp
     cli/app_test.cpp
     cli/compact_command_test.cpp
+    cli/completion_command_test.cpp
     cli/config_command_test.cpp
     cli/info_command_test.cpp
     cli/list_command_test.cpp
