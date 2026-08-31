@@ -3,6 +3,7 @@
 #include <CLI/CLI.hpp>
 #include <nlohmann/json.hpp>
 
+#include <format>
 #include <ostream>
 #include <vector>
 
@@ -168,6 +169,21 @@ std::string editor_command(const IFileSystem& filesystem) {
         return editor->string();
     }
     return "notepad";
+}
+
+model::Config load_configuration(const IFileSystem& filesystem, ILogger& logger) {
+    const auto path = model::config_path(filesystem);
+    if (!path.has_value()) {
+        logger.warn("using the built-in defaults: " + path.error().to_string());
+        return model::Config{};
+    }
+
+    auto loaded = model::load_config(filesystem, *path);
+    if (!loaded.has_value()) {
+        logger.warn(std::format("ignoring {}: {}", model::path_to_utf8(*path), loaded.error().to_string()));
+        return model::Config{};
+    }
+    return *std::move(loaded);
 }
 
 int run_config(const Services& services, const ConfigOptions& options, const GlobalOptions& global,

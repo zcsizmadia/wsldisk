@@ -94,26 +94,15 @@ int run(std::span<const std::string> args, std::ostream& out, std::ostream& err)
         const platform::WslExeHost host;
         const platform::SystemClock clock;
 
-        // Loaded once, here, so no command can be wired up without it. A missing
-        // file is the defaults and not an error -- `load_config` says so -- but
-        // a file that exists and does not parse is worth hearing about, and is
-        // not worth refusing to run over: the user asked to compact a disk, not
-        // to have their settings audited.
-        model::Config configuration;
-        if (const auto path = model::config_path(filesystem); path.has_value()) {
-            if (auto loaded = model::load_config(filesystem, *path); loaded.has_value()) {
-                configuration = *std::move(loaded);
-            } else {
-                logger.warn(std::format("ignoring {}: {}", path->string(), loaded.error().to_string()));
-            }
-        }
-
+        // Loaded once, here, so no command can be wired up without it. The
+        // decisions live in `load_configuration` rather than inline, so its
+        // failure paths are reachable from a test.
         const Services services{.registry = &registry,
                                 .filesystem = &filesystem,
                                 .disks = &disks,
                                 .host = &host,
                                 .clock = &clock,
-                                .config = std::move(configuration)};
+                                .config = load_configuration(filesystem, logger)};
 
         if (app.got_subcommand("info")) {
             return run_info(services, commands.info, options, logger, out, err);

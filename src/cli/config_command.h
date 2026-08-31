@@ -45,6 +45,19 @@ using LaunchEditor = std::function<Status(const std::filesystem::path& path)>;
 /// testable, and because `%EDITOR%` may itself contain variables.
 [[nodiscard]] std::string editor_command(const IFileSystem& filesystem);
 
+/// The settings every command runs with, or the defaults when there are none.
+///
+/// Takes an `IFileSystem` rather than reading the environment itself, because
+/// this used to sit inline in `app.cpp` beside the real Win32 services -- where
+/// no test could reach its failure paths. A branch that cannot be tested is a
+/// branch nobody has checked, and this one decides what `compact` does.
+///
+/// Neither failure stops the command. A missing file is the defaults and not an
+/// error; a file that exists and does not parse is a warning and still the
+/// defaults, because the user asked to compact a disk, not to have their
+/// settings audited.
+[[nodiscard]] model::Config load_configuration(const IFileSystem& filesystem, ILogger& logger);
+
 /// Runs `config`, returning the process exit code.
 [[nodiscard]] int run_config(const Services& services, const ConfigOptions& options,
                              const GlobalOptions& global, ILogger& logger, const LaunchEditor& launch,
