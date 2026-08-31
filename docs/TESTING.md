@@ -16,7 +16,7 @@ untested code is not shipped.
 
 ## Coverage
 
-- **Tool:** OpenCppCoverage (MSVC) for Windows-native coverage; clang-cl `-fprofile-instr-generate -fcoverage-mapping` + `llvm-cov` as the reference implementation because it gives branch coverage. CI publishes both; the **clang-cl/llvm-cov number gates**.
+- **Tool:** clang-cl `-fprofile-instr-generate -fcoverage-mapping` + `llvm-cov`, chosen because it gives branch coverage. It is the only coverage tool CI runs. (OpenCppCoverage was planned as a second, MSVC-native report and never wired up; there is no second number to compare against.)
 - **Scope:** everything under `src/`. `tests/`, `spikes/`, vcpkg dependencies excluded.
 - **Threshold:** 100% lines, 100% branches, 100% functions. Enforced by `llvm-cov export` → `scripts/check-coverage.py` failing under threshold.
 - **Exclusions:** `// LCOV_EXCL_LINE`, `// LCOV_EXCL_START..STOP` and `// LCOV_EXCL_BR_LINE` mark code no test can reach — `std::unreachable()`, a `default:` after an exhaustive `switch`, a `while (true)` whose every exit is a `return`, or the second half of a short-circuit condition that no current caller can make false. Each needs a comment saying why, and every one is printed on each run. Target: fewer than 10 in the whole codebase.
@@ -24,7 +24,7 @@ untested code is not shipped.
   `LCOV_EXCL_BR_LINE` is an ordinary tool, not a last resort. Reaching for it costs one justifying comment; *not* reaching for it costs either a test that exists only to move a counter, or production code contorted into a shape that satisfies the instrumenter. Both of those are worse, and both have happened here. A defensive check that no producer can currently trigger stays in the code behind an exclusion rather than being deleted for being uncoverable — see `ScopedHandle::close`.
 - **Defaulted special members do not count.** A function declared `= default` is skipped for line and function coverage: a compiler-generated body has no behaviour to assert, and requiring one to be "covered" only buys tests that construct an object through a base pointer and assert nothing. The count is printed on each run so the rule stays visible.
 - **How 100% is achievable:** Win32 calls live only in `platform/`, wrapped as thin functions; each failure branch is exercised by the contract tests (bad path, locked file, access denied via ACL on a temp file, invalid handle) or by a **fault-injection shim**: `platform/` calls Win32 through a `Win32Api` table that tests can replace to return arbitrary error codes. Every `THROW_IF_WIN32_ERROR` therefore has a test that triggers it.
-- **Reporting:** Codecov upload with `fail_ci_if_error`, PR comment with diff coverage, badge in README. HTML report attached as a workflow artifact.
+- **Reporting:** the gate is `scripts/check-coverage.py`, and it is the only thing that can fail a build over coverage. The HTML report is attached as a workflow artifact. Codecov receives an upload for the badge and the trend graph, deliberately with `fail_ci_if_error: false` — a missing token or a flaky upload must not turn a passing build red, which also means **a Codecov outage is silent**. There is no diff-coverage PR comment; do not review as though there were one.
 
 ## Fakes and fixtures
 
