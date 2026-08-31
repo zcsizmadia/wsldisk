@@ -113,6 +113,7 @@ struct Win32Api {
                          LPCWSTR name)>
         create_event;
     std::function<DWORD(HANDLE handle, DWORD milliseconds)> wait_for_single_object;
+    std::function<BOOL(HANDLE handle, LPOVERLAPPED overlapped)> cancel_io_ex;
 };
 
 /// The table that forwards to the real Win32 entry points.

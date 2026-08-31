@@ -44,6 +44,9 @@ public:
     [[nodiscard]] Status compact(const ProgressCallback& progress) override;
 
 private:
+    /// Stops a started compaction before its OVERLAPPED leaves the stack.
+    void abandon(OVERLAPPED& overlapped, HANDLE event) const;
+
     ScopedHandle handle_;
     std::filesystem::path path_;
 };
@@ -88,6 +91,40 @@ Result<VirtualDiskInfo> Win32VirtualDiskHandle::information() const {
     return result;
 }
 
+/// How long to keep asking, after cancelling, before giving up on a clean stop.
+/// Generous, because the alternative to waiting is memory corruption.
+constexpr DWORD cancel_poll_interval_ms = 100;
+constexpr int cancel_poll_attempts = 100;
+
+/// Waits for a started compaction to stop touching `overlapped`.
+///
+/// `CompactVirtualDisk` runs asynchronously against an `OVERLAPPED` and an event
+/// that both live on `compact`'s stack. Returning while the operation is still
+/// `ERROR_IO_PENDING` leaves the kernel a pointer into a frame that is about to
+/// be reused, and an event handle that is about to be closed: when the
+/// compaction finishes it writes its status into whatever now occupies that
+/// memory. Intermittent, unreproducible, and nothing in the tool would report it.
+///
+/// So every exit taken while the operation is pending comes through here first.
+/// `CancelIoEx` asks; the wait is what makes it safe, because the request is not
+/// the acknowledgement. The wait is bounded -- a compaction that will not stop is
+/// still better reported than waited on forever -- and a timeout is the one case
+/// where returning is worse than not, so it is reported rather than swallowed.
+void Win32VirtualDiskHandle::abandon(OVERLAPPED& overlapped, HANDLE event) const {
+    std::ignore = win32().cancel_io_ex(handle_.get(), &overlapped);
+
+    VIRTUAL_DISK_PROGRESS raw{};
+    for (int attempt = 0; attempt < cancel_poll_attempts; ++attempt) {
+        if (win32().wait_for_single_object(event, cancel_poll_interval_ms) == WAIT_OBJECT_0) {
+            return;
+        }
+        const DWORD polled = win32().get_virtual_disk_operation_progress(handle_.get(), &overlapped, &raw);
+        if (polled != ERROR_SUCCESS || raw.OperationStatus != ERROR_IO_PENDING) {
+            return;
+        }
+    }
+}
+
 Status Win32VirtualDiskHandle::compact(const ProgressCallback& progress) {
     // An event is needed for the asynchronous form: CompactVirtualDisk returns
     // ERROR_IO_PENDING and the operation runs until the event signals.
@@ -120,19 +157,27 @@ Status Win32VirtualDiskHandle::compact(const ProgressCallback& progress) {
     while (true) {  // LCOV_EXCL_BR_LINE
         const DWORD waited = win32().wait_for_single_object(event.get(), progress_poll_interval_ms);
         if (waited == WAIT_FAILED) {
-            return std::unexpected(error_from_win32(
-                win32().get_last_error(), std::format("wait for the compaction of {}", path_.string())));
+            const DWORD failure = win32().get_last_error();
+            abandon(overlapped, event.get());
+            return std::unexpected(
+                error_from_win32(failure, std::format("wait for the compaction of {}", path_.string())));
         }
 
         VIRTUAL_DISK_PROGRESS raw{};
         const DWORD polled = win32().get_virtual_disk_operation_progress(handle_.get(), &overlapped, &raw);
         if (polled != ERROR_SUCCESS) {
+            abandon(overlapped, event.get());
             return std::unexpected(
                 error_from_win32(polled, std::format("read the compaction progress of {}", path_.string())));
         }
 
         if (raw.OperationStatus == ERROR_IO_PENDING) {
             if (!progress(DiskProgress{.current = raw.CurrentValue, .total = raw.CompletionValue})) {
+                // Cancelled, and then actually stopped before saying so: the old
+                // remedy claimed "the disk is still usable; re-run to finish"
+                // while a compaction was in fact still running against the file
+                // the caller may reopen immediately.
+                abandon(overlapped, event.get());
                 return fail(ErrorCode::Partial, std::format("compaction of {} was cancelled", path_.string()),
                             "the disk is still usable; re-run to finish reclaiming space");
             }

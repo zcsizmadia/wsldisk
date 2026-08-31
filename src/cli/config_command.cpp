@@ -165,10 +165,23 @@ std::string editor_command(const IFileSystem& filesystem) {
     const auto editor = filesystem.expand_environment(LR"(%EDITOR%)");
     // Unset variables expand to themselves, so `%EDITOR%` coming back unchanged
     // means there is none.
-    if (editor.has_value() && editor->wstring() != LR"(%EDITOR%)" && !editor->empty()) {
-        return editor->string();
+    if (!editor.has_value() || editor->wstring() == LR"(%EDITOR%)" || editor->empty()) {
+        return "notepad";
     }
-    return "notepad";
+
+    // `%EDITOR%` is a *command*, not a path: `code --wait` and
+    // `C:\Program Files\ed.exe` are both ordinary values and they need opposite
+    // treatment. Quoting is decided by asking whether the whole string names a
+    // program that exists -- if it does it is a path with a space in it, and if
+    // it does not it has arguments and must be passed through as written.
+    //
+    // Asked of the filesystem rather than guessed from the shape. "It has a
+    // space so quote it" broke every editor with a flag; "it has a space before
+    // a dash so do not" would break a program in a directory called `C:\a -b`.
+    if (model::path_to_utf8(*editor).find(' ') != std::string::npos && filesystem.exists(*editor)) {
+        return "\"" + model::path_to_utf8(*editor) + "\"";
+    }
+    return model::path_to_utf8(*editor);
 }
 
 model::Config load_configuration(const IFileSystem& filesystem, ILogger& logger) {

@@ -66,7 +66,31 @@ private:
 }  // namespace
 
 bool Win32FileSystem::exists(const std::filesystem::path& path) const {
-    return win32().get_file_attributes(path.c_str()) != INVALID_FILE_ATTRIBUTES;
+    if (win32().get_file_attributes(path.c_str()) != INVALID_FILE_ATTRIBUTES) {
+        return true;
+    }
+
+    // `GetFileAttributesW` fails for reasons other than absence: no traverse
+    // right on a parent directory, a delete pending, an unavailable device. All
+    // of those used to read as "does not exist", so `relink` told a user whose
+    // parent directory denies traverse that their disk was not there and
+    // suggested they check the path -- sending them to hunt a typo when the
+    // answer was permissions.
+    //
+    // Only the codes that genuinely mean absent are treated as absent. Anything
+    // else answers "not known to be missing", so the caller proceeds and fails
+    // at the real operation with the real Win32 error, which is a diagnosis
+    // rather than a guess.
+    switch (win32().get_last_error()) {
+        case ERROR_FILE_NOT_FOUND:
+        case ERROR_PATH_NOT_FOUND:
+        case ERROR_INVALID_NAME:
+        case ERROR_BAD_NETPATH:
+        case ERROR_BAD_NET_NAME:
+            return false;
+        default:
+            return true;
+    }
 }
 
 Result<std::uint64_t> Win32FileSystem::file_size(const std::filesystem::path& path) const {

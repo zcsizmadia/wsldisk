@@ -586,3 +586,31 @@ TEST_CASE("load_configuration warns when it cannot even find the file", "[cli][c
     CHECK(config.compact_trim);
     CHECK(machine.errors.str().find("built-in defaults") != std::string::npos);
 }
+
+TEST_CASE("editor_command quotes a program path that has a space", "[cli][config]") {
+    // It exists, so the whole value is a path rather than a command with
+    // arguments, and CreateProcessW needs it quoted to find it.
+    Machine machine;
+    const std::filesystem::path editor = LR"(C:\Program Files\editor\ed.exe)";
+    machine.filesystem.set_variable(L"EDITOR", editor.wstring());
+    machine.filesystem.add_file(editor, FakeFileSystem::File{});
+
+    CHECK(editor_command(machine.filesystem) == R"("C:\Program Files\editor\ed.exe")");
+}
+
+TEST_CASE("editor_command leaves an editor with arguments alone", "[cli][config]") {
+    // `code --wait` names no file, so it is a command line and must be passed
+    // through as written. Quoting it made `wsldisk config edit` fail for every
+    // VS Code user.
+    Machine machine;
+    machine.filesystem.set_variable(L"EDITOR", L"code --wait");
+
+    CHECK(editor_command(machine.filesystem) == "code --wait");
+}
+
+TEST_CASE("editor_command leaves a bare program name alone", "[cli][config]") {
+    Machine machine;
+    machine.filesystem.set_variable(L"EDITOR", L"vim");
+
+    CHECK(editor_command(machine.filesystem) == "vim");
+}

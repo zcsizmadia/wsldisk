@@ -171,6 +171,8 @@ const Win32Api& real_win32_api() {
             },
         .wait_for_single_object =
             [](HANDLE handle, DWORD milliseconds) { return ::WaitForSingleObject(handle, milliseconds); },
+        .cancel_io_ex = [](HANDLE handle,
+                           LPOVERLAPPED overlapped) { return ::CancelIoEx(handle, overlapped); },
     };
     return table;
 }

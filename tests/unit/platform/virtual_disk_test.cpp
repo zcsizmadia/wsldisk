@@ -43,6 +43,10 @@ Win32Api all_failing(DWORD status) {
         return reinterpret_cast<HANDLE>(2);
     };
     api.wait_for_single_object = [](HANDLE, DWORD) -> DWORD { return WAIT_OBJECT_0; };
+    // Succeeds and reports the operation finished, which is the ordinary answer:
+    // `compact` only calls this on a path where it is abandoning a started
+    // compaction, and every one of those paths waits for it to stop.
+    api.cancel_io_ex = [](HANDLE, LPOVERLAPPED) -> BOOL { return TRUE; };
     api.get_last_error = []() -> DWORD { return ERROR_ACCESS_DENIED; };
     return api;
 }
@@ -400,4 +404,132 @@ TEST_CASE("create reports a failure", "[platform][vdisk]") {
     REQUIRE_FALSE(status.has_value());
     CHECK(status.error().code == ErrorCode::Preflight);
     CHECK(status.error().remedy.find("free space") != std::string::npos);
+}
+
+// `CompactVirtualDisk` runs asynchronously against an OVERLAPPED and an event
+// that both live on `compact`'s stack. Three paths used to return while the
+// operation was still ERROR_IO_PENDING, leaving the kernel a pointer into a
+// frame about to be reused and an event handle about to be closed. The tests
+// below pin that every one of them now stops the operation first.
+
+TEST_CASE("a cancelled compaction is stopped before compact returns", "[platform][vdisk]") {
+    bool cancelled = false;
+    bool pending = true;
+
+    Win32Api api = opens_ok();
+    api.compact_virtual_disk = [](HANDLE, COMPACT_VIRTUAL_DISK_FLAG, PCOMPACT_VIRTUAL_DISK_PARAMETERS,
+                                  LPOVERLAPPED) -> DWORD { return ERROR_IO_PENDING; };
+    api.get_virtual_disk_operation_progress = [&pending](HANDLE, LPOVERLAPPED,
+                                                         PVIRTUAL_DISK_PROGRESS progress) -> DWORD {
+        progress->OperationStatus = pending ? ERROR_IO_PENDING : ERROR_SUCCESS;
+        progress->CurrentValue = 10;
+        progress->CompletionValue = 100;
+        return ERROR_SUCCESS;
+    };
+    api.cancel_io_ex = [&cancelled, &pending](HANDLE, LPOVERLAPPED) -> BOOL {
+        cancelled = true;
+        // The request is not the acknowledgement: the operation stops on the
+        // next poll, not on the call.
+        pending = false;
+        return TRUE;
+    };
+    const ScopedWin32Api scoped{api};
+
+    const Win32VirtualDisk disks;
+    const auto handle = disks.open(R"(C:\wsl\ext4.vhdx)");
+    REQUIRE(handle.has_value());
+
+    const auto status = (*handle)->compact([](const DiskProgress&) { return false; });
+
+    REQUIRE_FALSE(status.has_value());
+    CHECK(status.error().code == ErrorCode::Partial);
+    CHECK(cancelled);
+    CHECK_FALSE(pending);
+}
+
+TEST_CASE("a failed progress poll stops the compaction before returning", "[platform][vdisk]") {
+    // Reachable today, unlike the cancellation path: nothing in the tool returns
+    // false from the progress callback, but a Win32 failure part-way through a
+    // real compaction is entirely ordinary.
+    bool cancelled = false;
+
+    Win32Api api = opens_ok();
+    api.compact_virtual_disk = [](HANDLE, COMPACT_VIRTUAL_DISK_FLAG, PCOMPACT_VIRTUAL_DISK_PARAMETERS,
+                                  LPOVERLAPPED) -> DWORD { return ERROR_IO_PENDING; };
+    api.get_virtual_disk_operation_progress = [&cancelled](HANDLE, LPOVERLAPPED,
+                                                           PVIRTUAL_DISK_PROGRESS) -> DWORD {
+        // Fails the first time, then answers so the drain can finish.
+        return cancelled ? ERROR_SUCCESS : ERROR_ACCESS_DENIED;
+    };
+    api.cancel_io_ex = [&cancelled](HANDLE, LPOVERLAPPED) -> BOOL {
+        cancelled = true;
+        return TRUE;
+    };
+    const ScopedWin32Api scoped{api};
+
+    const Win32VirtualDisk disks;
+    const auto handle = disks.open(R"(C:\wsl\ext4.vhdx)");
+    REQUIRE(handle.has_value());
+
+    const auto status = (*handle)->compact([](const DiskProgress&) { return true; });
+
+    REQUIRE_FALSE(status.has_value());
+    CHECK(cancelled);
+}
+
+TEST_CASE("a failed wait stops the compaction before returning", "[platform][vdisk]") {
+    bool cancelled = false;
+
+    Win32Api api = opens_ok();
+    api.compact_virtual_disk = [](HANDLE, COMPACT_VIRTUAL_DISK_FLAG, PCOMPACT_VIRTUAL_DISK_PARAMETERS,
+                                  LPOVERLAPPED) -> DWORD { return ERROR_IO_PENDING; };
+    api.wait_for_single_object = [&cancelled](HANDLE, DWORD) -> DWORD {
+        // Fails the first time; the drain's own wait then succeeds.
+        return cancelled ? WAIT_OBJECT_0 : WAIT_FAILED;
+    };
+    api.cancel_io_ex = [&cancelled](HANDLE, LPOVERLAPPED) -> BOOL {
+        cancelled = true;
+        return TRUE;
+    };
+    const ScopedWin32Api scoped{api};
+
+    const Win32VirtualDisk disks;
+    const auto handle = disks.open(R"(C:\wsl\ext4.vhdx)");
+    REQUIRE(handle.has_value());
+
+    const auto status = (*handle)->compact([](const DiskProgress&) { return true; });
+
+    REQUIRE_FALSE(status.has_value());
+    CHECK(status.error().message.find("wait for the compaction") != std::string::npos);
+    CHECK(cancelled);
+}
+
+TEST_CASE("a compaction that will not stop is given up on rather than waited on forever",
+          "[platform][vdisk]") {
+    // The drain is bounded. A compaction that ignores CancelIoEx is a worse
+    // problem than this code can solve, and hanging the tool is not a fix.
+    int polls = 0;
+
+    Win32Api api = opens_ok();
+    api.compact_virtual_disk = [](HANDLE, COMPACT_VIRTUAL_DISK_FLAG, PCOMPACT_VIRTUAL_DISK_PARAMETERS,
+                                  LPOVERLAPPED) -> DWORD { return ERROR_IO_PENDING; };
+    api.wait_for_single_object = [](HANDLE, DWORD) -> DWORD { return WAIT_TIMEOUT; };
+    api.get_virtual_disk_operation_progress = [&polls](HANDLE, LPOVERLAPPED,
+                                                       PVIRTUAL_DISK_PROGRESS progress) -> DWORD {
+        ++polls;
+        progress->OperationStatus = ERROR_IO_PENDING;
+        return ERROR_SUCCESS;
+    };
+    api.cancel_io_ex = [](HANDLE, LPOVERLAPPED) -> BOOL { return TRUE; };
+    const ScopedWin32Api scoped{api};
+
+    const Win32VirtualDisk disks;
+    const auto handle = disks.open(R"(C:\wsl\ext4.vhdx)");
+    REQUIRE(handle.has_value());
+
+    const auto status = (*handle)->compact([](const DiskProgress&) { return false; });
+
+    REQUIRE_FALSE(status.has_value());
+    // It returned rather than spinning: bounded, not unbounded.
+    CHECK(polls > 1);
 }

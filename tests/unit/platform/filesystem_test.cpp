@@ -271,3 +271,43 @@ TEST_CASE("the injected table is restored when the scope ends", "[platform][win3
     // Back to the real API: the Windows directory is always there.
     CHECK(fs.exists("C:\\Windows"));
 }
+
+TEST_CASE("exists reports a file it is not allowed to look at as present", "[platform][fs]") {
+    // `GetFileAttributesW` fails with ERROR_ACCESS_DENIED when a parent
+    // directory denies traverse -- the file is there, we just cannot look. That
+    // used to read as "does not exist", so `relink` told the user to check the
+    // path when the answer was permissions.
+    //
+    // FakeFileSystem::exists is plain map membership, so no test using the fake
+    // could see this. That is the fourth time a fake has agreed with a bug here.
+    Win32Api api;
+    api.get_file_attributes = [](LPCWSTR) -> DWORD { return INVALID_FILE_ATTRIBUTES; };
+    api.get_last_error = []() -> DWORD { return ERROR_ACCESS_DENIED; };
+    const ScopedWin32Api scoped{api};
+
+    const Win32FileSystem filesystem;
+
+    CHECK(filesystem.exists(R"(C:\denied\ext4.vhdx)"));
+}
+
+TEST_CASE("exists reports a file that is genuinely absent as absent", "[platform][fs]") {
+    Win32Api api;
+    api.get_file_attributes = [](LPCWSTR) -> DWORD { return INVALID_FILE_ATTRIBUTES; };
+    api.get_last_error = []() -> DWORD { return ERROR_FILE_NOT_FOUND; };
+    const ScopedWin32Api scoped{api};
+
+    const Win32FileSystem filesystem;
+
+    CHECK_FALSE(filesystem.exists(R"(C:\gone\ext4.vhdx)"));
+}
+
+TEST_CASE("exists treats a malformed path as absent rather than present", "[platform][fs]") {
+    Win32Api api;
+    api.get_file_attributes = [](LPCWSTR) -> DWORD { return INVALID_FILE_ATTRIBUTES; };
+    api.get_last_error = []() -> DWORD { return ERROR_INVALID_NAME; };
+    const ScopedWin32Api scoped{api};
+
+    const Win32FileSystem filesystem;
+
+    CHECK_FALSE(filesystem.exists("not a path"));
+}
