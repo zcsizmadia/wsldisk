@@ -6,9 +6,10 @@
 [![codeql](https://github.com/zcsizmadia/wsldisk/actions/workflows/codeql.yml/badge.svg)](https://github.com/zcsizmadia/wsldisk/actions/workflows/codeql.yml)
 [![license: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
-**Status:** pre-alpha. No command is implemented yet — M0 (build, test and CI
-foundation) is landing; the first usable release is M1 (`list`, `info`,
-`compact`, `trim`, `orphans`). See [PLAN.md](PLAN.md) and [ROADMAP.md](ROADMAP.md).
+**Status:** alpha. `list`, `info`, `compact`, `trim`, `orphans`, `config` and
+`completion` work and are tested end to end against real WSL2. Everything in
+[PLAN.md](PLAN.md) §4 beyond those is still ahead; see
+[ROADMAP.md](ROADMAP.md).
 
 ## Why
 
@@ -22,27 +23,166 @@ it can corrupt data.
 Dozens of PowerShell scripts each solve one slice of this. `wsldisk` aims to be the single,
 tested, native tool that covers the whole lifecycle of a WSL2 disk.
 
-## Planned features
+## Usage
 
-| Command | What it does |
-|---|---|
-| `wsldisk list` | All distros + Docker Desktop volumes: path, virtual size, actual size on disk, used inside ext4, sparse flag, WSL version |
-| `wsldisk compact <distro>` | `fstrim` → shutdown → compact via Virtual Disk API (no Hyper-V module needed) → report reclaimed bytes |
-| `wsldisk shrink <distro> --to 64G` | Actually reduce the **maximum** virtual size: `e2fsck` + `resize2fs` inside the distro, then `ResizeVirtualDisk` |
-| `wsldisk grow <distro> --to 512G` | Grow the virtual disk and the ext4 filesystem in one step |
-| `wsldisk move <distro> D:\WSL\` | Move the `.vhdx` and repoint the registry `BasePath` — no export/import, preserves default user and settings |
-| `wsldisk snapshot` / `restore` | Fast snapshots (VHDX copy or export tar), optional incremental/dedup backends, retention policy, scheduling |
-| `wsldisk doctor` | Detect the `--allow-unsafe` sparse foot-gun, orphaned VHDX files, distros with wrong `BasePath`, disks near capacity |
-| `wsldisk mount <file.vhdx>` | Attach any VHDX read-only into a distro for forensics/recovery |
-| `wsldisk info` / `usage` / `orphans` / `lock` | Detail view, where space goes inside the guest, unreferenced VHDX files, which process holds the disk |
-| `wsldisk trim` / `clean` / `verify` | fstrim only; purge known caches (apt, npm, pip, docker, journal…) then compact; read-only `e2fsck` |
-| `wsldisk clone` / `migrate` / `default-user` / `set-sparse` | Scratch copies, move all distros to a new drive, fix `DefaultUid`, guided sparse toggle |
-| `wsldisk rescue` | Shell in a helper distro with a broken distro's disk mounted rw |
-| `wsldisk schedule` / `config` / `completion` | Task Scheduler jobs, settings, shell completions |
+**Scope:** WSL2 only. WSL1 distributions have no virtual disk; `wsldisk list` shows them, and every other command refuses with a hint to convert (`wsl --set-version <distro> 2`).
 
-Full command tree and per-command specs in [PLAN.md](PLAN.md) §4.
+Every command takes `--json` for scripting and `--dry-run` where it changes
+anything. Exit codes mean something; the full list is in
+[docs/JSON.md](docs/JSON.md#exit-codes).
 
-**Scope:** WSL2 only. WSL1 distributions have no virtual disk; `wsldisk list` shows them, every other command refuses with a hint to convert (`wsl --set-version <distro> 2`).
+### See where the space went
+
+```text
+> wsldisk list
+NAME                  VER  STATE    SIZE ON DISK  GUEST USED  RECLAIMABLE  PATH
+Ubuntu *              2    running  13.8 GiB      10.0 GiB    3.7 GiB      C:\Users\example\AppData\Local\wsl\{4d1297e9-...}\ext4.vhdx
+docker-desktop        2    stopped  96.0 MiB      -           -            C:\Users\example\AppData\Local\Docker\wsl\main\ext4.vhdx
+rancher-desktop-data  2    stopped  3.2 GiB       -           -            C:\Users\example\AppData\Local\rancher-desktop\distro-data\ext4.vhdx
+rancher-desktop       2    stopped  883.0 MiB     -           -            C:\Users\example\AppData\Local\rancher-desktop\distro\ext4.vhdx
+```
+
+`GUEST USED` and `RECLAIMABLE` need the distribution running, because the
+guest-used half comes from `df` inside it. Pass `--probe` to start the stopped
+ones and measure them too. A `-` means "not measured", never "zero".
+
+### Look at one in detail
+
+```text
+> wsldisk info Ubuntu
+name:          Ubuntu
+guid:          {4d1297e9-bac4-4da1-9867-a2ab591e9581}
+registry key:  Software\Microsoft\Windows\CurrentVersion\Lxss\{4d1297e9-...}
+wsl version:   2
+default:       yes
+state:         running
+base path:     C:\Users\example\AppData\Local\wsl\{4d1297e9-...}
+vhd file name: ext4.vhdx
+disk path:     C:\Users\example\AppData\Local\wsl\{4d1297e9-...}\ext4.vhdx
+modern layout: yes
+flavor:        ubuntu
+os version:    24.04
+default uid:   1000
+flags:         15 (interop, append-nt-path, drive-mounting, undocumented(0x8))
+virtual size:  1.0 TiB
+file size:     13.8 GiB
+size on disk:  13.8 GiB
+allocated:     13.8 GiB
+sparse:        no
+block size:    1.0 MiB
+sector size:   512
+guest used:    10.0 GiB
+guest free:    945.6 GiB
+reclaimable:   3.7 GiB
+```
+
+### Get the space back
+
+```text
+> wsldisk compact Ubuntu
+  run fstrim in Ubuntu ...
+  stop Ubuntu and wait for its disk ...
+  compact C:\Users\example\AppData\Local\wsl\{4d1297e9-...}\ext4.vhdx ...
+Ubuntu: 3.7 GiB reclaimed (13.8 GiB to 10.1 GiB)
+```
+
+No administrator rights, no Hyper-V module — which is the whole point on
+Windows Home. Nothing inside the distribution changes.
+
+`compact` refuses rather than stopping WSL behind your back:
+
+```text
+> wsldisk compact Ubuntu
+error: C:\Users\example\...\ext4.vhdx is still open in docker-desktop -- the WSL
+utility VM keeps every disk open while any distribution runs; re-run with
+--shutdown to stop them all, or close them yourself first
+```
+
+That is not caution for its own sake: releasing one disk means stopping *every*
+distribution, including your containers. `--shutdown` says you are willing.
+[docs/COMPACT.md](docs/COMPACT.md) explains why in full.
+
+```text
+wsldisk compact --all              # every WSL2 distribution
+wsldisk compact Ubuntu --dry-run   # print the steps, change nothing
+wsldisk compact --file D:\disks\docker_data.vhdx
+```
+
+### Trim without stopping anything
+
+```text
+> wsldisk trim Ubuntu
+Ubuntu: trimmed. fstrim reported 1004.8 GiB.
+that figure is the free extent of the disk, not space reclaimed: compaction is what shrinks the file
+run `wsldisk compact Ubuntu` to shrink the file itself
+```
+
+`trim` leaves the distribution running, so it is the one reclaim step that is
+safe on a schedule. It does not shrink the file on its own — that is what the
+second line is telling you.
+
+### Find disks nothing is using
+
+```text
+> wsldisk orphans
+SIZE ON DISK  PATH
+67.8 GiB      C:\Users\example\AppData\Local\Docker\wsl\disk\docker_data.vhdx
+
+67.8 GiB in 1 file(s) that no distribution claims
+```
+
+**Read that carefully before deleting anything.** Docker Desktop's
+`docker_data.vhdx` holds every volume you have and no WSL distribution claims
+it, so it shows up here. `orphans --delete` refuses any file another process
+has open, and asks before removing the rest — but the judgement is yours.
+
+```text
+wsldisk orphans --delete                       # asks first; --yes skips the prompt
+wsldisk orphans --relink Ubuntu --to D:\wsl\Ubuntu\ext4.vhdx
+```
+
+`--relink` points a distribution at a disk that moved, then starts it as a smoke
+test and puts the registry back if it does not boot.
+
+### Settings and shell completion
+
+```text
+> wsldisk config
+C:\Users\example\AppData\Roaming\wsldisk\config.toml
+
+scan.dirs:                  D:\WSL
+compact.trim:               true
+compact.restart:            false
+wsl.unlock_timeout_seconds: 5
+```
+
+```text
+wsldisk config set compact.restart true
+wsldisk config edit
+```
+
+A missing config file is the defaults, not an error. `wsldisk config` also shows
+the disk-relevant `.wslconfig` keys, read-only — `wsldisk` never writes that
+file.
+
+```powershell
+# Add to your PowerShell profile
+wsldisk completion powershell | Out-String | Invoke-Expression
+```
+
+```bash
+source <(wsldisk completion bash)   # or zsh
+```
+
+The completion script is generated from the command tree, so it cannot describe
+a flag that does not exist. Distribution names complete by asking
+`wsldisk list --json` at the time you press Tab.
+
+## Still to come
+
+Everything in [PLAN.md](PLAN.md) §4 that is not above: `shrink`, `grow`, `move`,
+`snapshot`/`restore`, `doctor`, `usage`, `clean`, `verify`, `mount`, `clone`,
+`migrate`, `rescue`, `schedule`. See [ROADMAP.md](ROADMAP.md) for the order.
 
 ## Design principles
 
@@ -56,7 +196,7 @@ Full command tree and per-command specs in [PLAN.md](PLAN.md) §4.
 
 ## Tech stack
 
-Modern C++ (C++20/23), CMake + vcpkg, [WIL](https://github.com/microsoft/wil), [CLI11](https://github.com/CLIUtils/CLI11), [fmt](https://github.com/fmtlib/fmt), Catch2. Details in [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
+C++23, CMake + Ninja + vcpkg, [CLI11](https://github.com/CLIUtils/CLI11), [nlohmann/json](https://github.com/nlohmann/json), [toml++](https://github.com/marzer/tomlplusplus), Catch2. No runtime dependencies: `wsldisk.exe` is a single static binary. Details in [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
 
 ## Building from source
 
@@ -78,6 +218,8 @@ Details and the full preset list are in [CONTRIBUTING.md](CONTRIBUTING.md).
 
 - [PLAN.md](PLAN.md) — detailed project plan: scope, user stories, technical approach, risks, decisions
 - [ROADMAP.md](ROADMAP.md) — milestones and task checklists
+- [docs/COMPACT.md](docs/COMPACT.md) — what compaction does, why it needs no admin, and why `--shutdown` exists
+- [docs/JSON.md](docs/JSON.md) — the `--json` schema for every command, and the exit codes
 - [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) — module layout, key Windows APIs, workflows
 - [docs/TESTING.md](docs/TESTING.md) — testing policy, 100% coverage gate, fakes, scenarios
 - [docs/CI.md](docs/CI.md) — GitHub workflows: ci, nightly, release, codeql, dependabot
