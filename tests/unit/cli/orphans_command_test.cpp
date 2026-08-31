@@ -16,6 +16,7 @@
 #include "golden.h"
 #include "logger.h"
 #include "lxss_hives.h"
+#include "model/text.h"
 
 using wsldisk::ErrorCode;
 using wsldisk::exit_code_for;
@@ -33,6 +34,7 @@ using wsldisk::cli::scan_orphans;
 using wsldisk::cli::Services;
 using wsldisk::cli::StreamLogger;
 using wsldisk::model::Orphan;
+namespace model = wsldisk::model;
 using wsldisk::testing::FakeFileSystem;
 using wsldisk::testing::FakeRegistry;
 using wsldisk::testing::FakeVirtualDisk;
@@ -450,4 +452,101 @@ TEST_CASE("a configured scan directory adds to the built-in roots", "[cli][orpha
 
     CHECK(output.find("Removed-Distro") != std::string::npos);
     CHECK(output.find(R"(D:\configured)") != std::string::npos);
+}
+
+TEST_CASE("orphans --delete --json emits one object per file and nothing else", "[cli][orphans]") {
+    // It used to print the table, the total, the Docker warning and a
+    // `deleted <path>` line, all to stdout, whatever `--json` said. This is a
+    // mutating command, so a script could not tell what had been removed.
+    Machine machine;
+    machine.add_orphan(stale_disk, 3 * gigabyte);
+    std::ostringstream out;
+
+    const int code = machine.run(OrphansOptions{.remove = true},
+                                 GlobalOptions{.json = true, .assume_yes = true}, out, Machine::accept);
+
+    CHECK(code == exit_code_success);
+    const nlohmann::json object = nlohmann::json::parse(out.str());
+    CHECK(object.at("deleted") == true);
+    CHECK(object.at("path") == model::path_to_utf8(stale_disk));
+    // No table, no total, no warning paragraph.
+    CHECK(out.str().find("SIZE ON DISK") == std::string::npos);
+    CHECK(out.str().find("would be freed") == std::string::npos);
+}
+
+TEST_CASE("orphans --delete --json reports a file it could not delete", "[cli][orphans]") {
+    Machine machine;
+    machine.add_orphan(stale_disk, 3 * gigabyte);
+    machine.filesystem.fail_remove(
+        wsldisk::Error{ErrorCode::NeedsElevation, "cannot delete", "run as the owning user"});
+    std::ostringstream out;
+
+    const int code = machine.run(OrphansOptions{.remove = true},
+                                 GlobalOptions{.json = true, .assume_yes = true}, out, Machine::accept);
+
+    // Nothing went, so the disks were held as far as the caller is concerned.
+    CHECK(code == exit_code_for(ErrorCode::DistroBusy));
+    const nlohmann::json object = nlohmann::json::parse(out.str().substr(0, out.str().find('\n')));
+    CHECK(object.at("deleted") == false);
+    CHECK(object.at("error").get<std::string>().find("cannot delete") != std::string::npos);
+}
+
+TEST_CASE("a partly successful delete exits partial rather than distro-busy", "[cli][orphans]") {
+    // docs/JSON.md defines 5 as "some steps succeeded and some did not" and 11
+    // as "running, or its disk is held open". A script that saw 11 for a mixed
+    // result would follow the documented remedy and run `wsl --shutdown`, which
+    // cannot help with an access-denied file.
+    Machine machine;
+    machine.add_orphan(stale_disk, 3 * gigabyte);
+    const std::filesystem::path second = LR"(C:\Users\example\AppData\Local\wsl\Another\ext4.vhdx)";
+    machine.add_orphan(second, gigabyte);
+    // One held open, one not: the mixed result the exit code is about.
+    machine.filesystem.lock_file(second);
+    std::ostringstream out;
+
+    const int code =
+        machine.run(OrphansOptions{.remove = true}, GlobalOptions{.assume_yes = true}, out, Machine::accept);
+
+    CHECK(code == exit_code_for(ErrorCode::Partial));
+}
+
+TEST_CASE("orphans --delete --json says nothing when there is nothing to delete", "[cli][orphans][json]") {
+    Machine machine;
+    std::ostringstream out;
+
+    const int code = machine.run(OrphansOptions{.remove = true},
+                                 GlobalOptions{.json = true, .assume_yes = true}, out, Machine::accept);
+
+    CHECK(code == exit_code_success);
+    CHECK(out.str().empty());
+}
+
+TEST_CASE("orphans --delete --json --dry-run says what it would remove", "[cli][orphans][json]") {
+    Machine machine;
+    machine.add_orphan(stale_disk, 3 * gigabyte);
+    std::ostringstream out;
+
+    const int code = machine.run(OrphansOptions{.remove = true}, GlobalOptions{.json = true, .dry_run = true},
+                                 out, Machine::accept);
+
+    CHECK(code == exit_code_success);
+    const nlohmann::json object = nlohmann::json::parse(out.str());
+    CHECK(object.at("dry_run") == true);
+    CHECK(object.at("deleted") == false);
+    CHECK(machine.filesystem.removed().empty());
+}
+
+TEST_CASE("orphans --delete --json prints nothing when the answer is no", "[cli][orphans][json]") {
+    // The prompt itself is suppressed under --json, and so is the "nothing was
+    // deleted" line: an empty stream is a complete answer.
+    Machine machine;
+    machine.add_orphan(stale_disk, 3 * gigabyte);
+    std::ostringstream out;
+
+    const int code =
+        machine.run(OrphansOptions{.remove = true}, GlobalOptions{.json = true}, out, Machine::refuse);
+
+    CHECK(code == exit_code_success);
+    CHECK(out.str().empty());
+    CHECK(machine.filesystem.removed().empty());
 }

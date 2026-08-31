@@ -37,6 +37,14 @@ struct GlobalOptions {
 /// Called once per (sub)command so the flags work in either position --
 /// `wsldisk --json list` and `wsldisk list --json` both being natural is worth
 /// more than the duplication costs.
-void add_global_options(CLI::App& app, GlobalOptions& options);
+/// `machine_readable` false leaves `--json` off, for a command whose stdout is
+/// not data.
+///
+/// Only `completion` wants that: its output is a shell script meant to be
+/// sourced, so there is nothing for `--json` to mean. Accepting the flag and
+/// ignoring it is the failure this whole change is about -- a command that takes
+/// an option and does nothing with it is worse than one that refuses it, because
+/// the refusal is the only thing that tells the user their expectation is wrong.
+void add_global_options(CLI::App& app, GlobalOptions& options, bool machine_readable = true);
 
 }  // namespace wsldisk::cli

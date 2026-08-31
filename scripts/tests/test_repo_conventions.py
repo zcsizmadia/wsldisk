@@ -368,3 +368,43 @@ def test_every_fuzz_target_is_fuzzed_nightly():
         "these fuzz targets exist but are not in nightly.yml's matrix, so they "
         "are only ever replayed, never fuzzed: " + ", ".join(missing)
     )
+
+
+def test_no_document_repeats_a_heading():
+    """markdownlint MD024, reimplemented locally for the same reason as MD051.
+
+    The npm proxy here answers 403 for `markdownlint-cli2`, so the markdown lint
+    only ever runs in CI. That is a full round trip to find out a heading was
+    duplicated -- which is what happened when a second config section
+    was added to docs/JSON.md.
+
+    Only exact repeats within one document, which is what MD024 checks by
+    default. Two documents may of course share a heading.
+    """
+    offenders = []
+    for document in markdown_documents():
+        text = document.read_text(encoding="utf-8", errors="replace")
+        seen: dict[str, int] = {}
+        in_fence = False
+        for number, line in enumerate(text.splitlines(), start=1):
+            if FENCE.match(line):
+                in_fence = not in_fence
+                continue
+            if in_fence:
+                continue
+            match = ATX_HEADING.match(line)
+            if not match:
+                continue
+            heading = match.group(2).strip()
+            if heading in seen:
+                offenders.append(
+                    f"{document.relative_to(REPO_ROOT)}:{number}: "
+                    f'"{heading}" repeats line {seen[heading]}'
+                )
+            else:
+                seen[heading] = number
+
+    assert not offenders, (
+        "markdownlint MD024 will fail on these, and it only runs in CI here -- "
+        "the npm proxy forbids markdownlint-cli2 locally.\n" + "\n".join(offenders)
+    )

@@ -1,6 +1,10 @@
 # JSON output
 
-Every command takes `--json`. This document is the schema.
+Every command that produces data takes `--json`. This document is the schema.
+
+The one exception is `completion`, which prints a shell script to be sourced.
+There is nothing for `--json` to mean there, so it is not accepted — a usage
+error rather than a flag that is taken and ignored.
 
 **Schema version: 1.** It changes when a field is removed or its meaning
 changes; adding a field is not a breaking change, so parse leniently and ignore
@@ -181,6 +185,65 @@ A single object.
 the same strings `config get` prints and `config set` accepts.
 
 `wsldisk` never writes `.wslconfig`.
+
+### The verbs
+
+```json
+{"path":"C:\\Users\\example\\AppData\\Roaming\\wsldisk\\config.toml"}
+{"key":"compact.trim","value":"true"}
+```
+
+| Verb | Object |
+|---|---|
+| `config` | the full settings object, described above |
+| `config path` | `{"path": ...}` |
+| `config get` | every setting as one object |
+| `config get <key>` | `{"key": ..., "value": ...}` |
+| `config set <key> <value>` | `{"key": ..., "value": ...}` — the value as stored, which is what was parsed rather than what was typed |
+
+## `--dry-run`
+
+Every command that mutates takes `--dry-run`, and under `--json` it emits the
+plan as one object per target rather than the human plan:
+
+```json
+{"distribution":"Ubuntu","dry_run":true,"steps":["run fstrim in Ubuntu","stop Ubuntu and wait for its disk"],"warnings":[{"message":"compaction rewrites the disk file and cannot be undone","remedy":"nothing inside the distribution changes; only unused blocks go"}]}
+```
+
+| Field | Type | Always? | Meaning |
+|---|---|---|---|
+| `distribution` / `target` | string | yes | What the plan is about. `compact` uses `target`, because it may be a loose `--file` rather than a distribution |
+| `dry_run` | bool | yes | Always `true`; present so a reader cannot mistake a plan for a result |
+| `steps` | array of string | yes | What would run, in order |
+| `warnings` | array of object | yes | `{message, remedy}`. Always present; empty when the plan has none |
+
+The exit code is the refusal's own code, not a generic one: a dry run that would
+have been refused with `distro-busy` (11) exits 11, the same as the real run
+would. That is the point of pre-checking.
+
+## `orphans --delete`
+
+One object per file, so a script can tell what went.
+
+```json
+{"path":"C:\\Users\\example\\AppData\\Local\\wsl\\Removed-Distro\\ext4.vhdx","deleted":true}
+{"path":"D:\\held\\ext4.vhdx","deleted":false,"error":"D:\\held\\ext4.vhdx is in use by another process"}
+```
+
+| Field | Type | Always? | Meaning |
+|---|---|---|---|
+| `path` | string | yes | The file |
+| `deleted` | bool | yes | Whether it went |
+| `error` | string | no | Why not. Present exactly when `deleted` is `false` |
+| `dry_run` | bool | no | `true` under `--dry-run`, where `deleted` is always `false` |
+
+Under `--json` the table, the total, the "not everything here is unused" warning
+and the confirmation prompt are all suppressed — stdout is the objects and
+nothing else. `--yes` still applies.
+
+**A partial failure exits 5 (`partial`), not 11.** 11 means the disks were held;
+5 means some went and some did not, and the objects say which. Only an attempt
+where *nothing* could be deleted exits 11.
 
 ## Errors
 

@@ -12,7 +12,7 @@ $script:WsldiskCommands = @{
     'trim' = @('--help', '-h', '--json', '--verbose', '-v', '--yes', '-y', '--dry-run', '--log')
     'compact' = @('--help', '-h', '--json', '--verbose', '-v', '--yes', '-y', '--dry-run', '--log', '--all', '--file', '--no-trim', '--restart', '--shutdown')
     'config' = @('path', 'get', 'set', 'edit', '--help', '-h', '--json', '--verbose', '-v', '--yes', '-y', '--dry-run', '--log')
-    'completion' = @('--help', '-h', '--json', '--verbose', '-v', '--yes', '-y', '--dry-run', '--log')
+    'completion' = @('--help', '-h', '--verbose', '-v', '--yes', '-y', '--dry-run', '--log')
 }
 
 $script:WsldiskGlobal = @('--help', '-h', '--version', '-V', '--json', '--verbose', '-v', '--yes', '-y', '--dry-run', '--log')

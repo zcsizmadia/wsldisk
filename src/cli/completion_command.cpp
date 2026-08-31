@@ -407,7 +407,10 @@ int run_completion(const CompletionOptions& options, const GlobalOptions& global
 
 void add_completion_command(CLI::App& app, GlobalOptions& global, CompletionOptions& options) {
     CLI::App* completion = app.add_subcommand("completion", "Print a shell completion script for wsldisk");
-    add_global_options(*completion, global);
+    // No `--json`: this prints a shell script to be sourced, and there is
+    // nothing for the flag to mean. It used to be accepted and ignored, so
+    // `wsldisk completion bash --json` handed a JSON reader a bash function.
+    add_global_options(*completion, global, /*machine_readable=*/false);
     completion->add_option("shell", options.shell, "powershell, bash or zsh")
         ->option_text("SHELL")
         ->required();

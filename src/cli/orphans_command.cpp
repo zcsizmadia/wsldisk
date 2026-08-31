@@ -6,6 +6,7 @@
 #include <algorithm>
 #include <format>
 #include <istream>
+#include <optional>
 #include <ostream>
 
 #include "app.h"
@@ -43,6 +44,36 @@ void render_orphan_json(const std::vector<model::Orphan>& orphans, std::ostream&
         }
         out << object.dump() << '\n';
     }
+}
+
+/// One deletion's outcome as a JSON line.
+void render_deletion_json(const model::Orphan& orphan, const std::optional<std::string>& failure,
+                          std::ostream& out) {
+    nlohmann::json object;
+    object["path"] = model::path_to_utf8(orphan.path);
+    object["deleted"] = !failure.has_value();
+    if (failure.has_value()) {
+        object["error"] = *failure;
+    }
+    out << object.dump() << '\n';
+}
+
+/// Deletes one file, or says why it could not be.
+///
+/// A file something else has open is not one to delete, whatever the registry
+/// says about it.
+[[nodiscard]] std::optional<std::string> delete_one(const Services& services, const model::Orphan& orphan) {
+    const auto locked = services.filesystem->is_locked(orphan.path);
+    if (!locked.has_value()) {
+        return locked.error().to_string();
+    }
+    if (*locked) {
+        return model::path_to_utf8(orphan.path) + " is in use by another process";
+    }
+    if (const Status removed = services.filesystem->remove(orphan.path); !removed.has_value()) {
+        return removed.error().to_string();
+    }
+    return std::nullopt;
 }
 
 }  // namespace
@@ -102,59 +133,80 @@ Result<std::vector<model::Orphan>> scan_orphans(const Services& services, const 
 int delete_orphans(const Services& services, const std::vector<model::Orphan>& orphans,
                    const GlobalOptions& global, const Confirm& confirm, std::ostream& out,
                    std::ostream& err) {
-    if (orphans.empty()) {
-        out << "nothing to delete\n";
+    // Everything below this line used to go to stdout regardless of `--json`:
+    // the table, the total, the Docker warning, the prompt, and a `deleted
+    // <path>` line per file. `orphans --delete --yes --json | jq` failed on its
+    // first line, and this is a *mutating* command -- a script could not tell
+    // what had been removed.
+    if (!global.json) {
+        if (orphans.empty()) {
+            out << "nothing to delete\n";
+            return exit_code_success;
+        }
+
+        render_orphan_table(orphans, out);
+        out << '\n' << format_size(total_size(orphans)) << " would be freed\n";
+
+        // Said before the prompt, because it is the thing most likely to change
+        // the answer. Docker Desktop keeps a docker_data.vhdx that no
+        // distribution claims and that holds every volume the user has; "no
+        // registry entry points at it" is not the same as "nothing needs it".
+        out << "\nnot every disk here is unused: software other than WSL keeps virtual disks\n"
+               "that no distribution claims. Check what each one is before deleting it.\n";
+    } else if (orphans.empty()) {
+        // An empty stream, the same answer `orphans --json` already gives when
+        // it finds nothing.
         return exit_code_success;
     }
 
-    render_orphan_table(orphans, out);
-    out << '\n' << format_size(total_size(orphans)) << " would be freed\n";
-
-    // Said before the prompt, because it is the thing most likely to change the
-    // answer. Docker Desktop keeps a docker_data.vhdx that no distribution
-    // claims and that holds every volume the user has; "no registry entry
-    // points at it" is not the same as "nothing needs it".
-    out << "\nnot every disk here is unused: software other than WSL keeps virtual disks\n"
-           "that no distribution claims. Check what each one is before deleting it.\n";
-
     if (global.dry_run) {
-        out << "--dry-run: nothing was deleted\n";
+        if (global.json) {
+            for (const model::Orphan& orphan : orphans) {
+                nlohmann::json object;
+                object["path"] = model::path_to_utf8(orphan.path);
+                object["dry_run"] = true;
+                object["deleted"] = false;
+                out << object.dump() << '\n';
+            }
+        } else {
+            out << "--dry-run: nothing was deleted\n";
+        }
         return exit_code_success;
     }
 
     if (!global.assume_yes && !confirm(std::format("delete {} file(s)?", orphans.size()))) {
-        out << "nothing was deleted\n";
+        if (!global.json) {
+            out << "nothing was deleted\n";
+        }
         return exit_code_success;
     }
 
     // A file that will not delete is reported and the rest are still tried:
     // stopping at the first failure leaves the user to work out how far it got.
-    int failures = 0;
+    std::size_t failures = 0;
     for (const model::Orphan& orphan : orphans) {
-        // A file something else has open is not one to delete, whatever the
-        // registry says about it.
-        const auto locked = services.filesystem->is_locked(orphan.path);
-        if (!locked.has_value()) {
-            err << "error: " << locked.error().to_string() << '\n';
+        const std::optional<std::string> failure = delete_one(services, orphan);
+        if (failure.has_value()) {
             ++failures;
-            continue;
-        }
-        if (*locked) {
-            err << "error: " << model::path_to_utf8(orphan.path) << " is in use by another process\n";
-            ++failures;
-            continue;
         }
 
-        if (const Status removed = services.filesystem->remove(orphan.path); !removed.has_value()) {
-            err << "error: " << removed.error().to_string() << '\n';
-            ++failures;
-            continue;
+        if (global.json) {
+            render_deletion_json(orphan, failure, out);
+        } else if (failure.has_value()) {
+            err << "error: " << *failure << '\n';
+        } else {
+            out << "deleted " << model::path_to_utf8(orphan.path) << '\n';
         }
-        out << "deleted " << model::path_to_utf8(orphan.path) << '\n';
     }
 
     if (failures > 0) {
-        return report(Error{ErrorCode::DistroBusy,
+        // `partial` when some of them went, `distro-busy` when none did.
+        // docs/JSON.md defines 5 as "some steps succeeded and some did not" and
+        // 11 as "running, or its disk is held open" -- and a script that saw 11
+        // for a mixed result would follow the documented remedy and run
+        // `wsl --shutdown`, which cannot help with an access-denied file.
+        const bool nothing_went = failures == orphans.size();
+        return report(Error{nothing_went ? ErrorCode::DistroBusy : ErrorCode::Partial,
                             std::format("{} of {} file(s) could not be deleted", failures, orphans.size()),
                             "a disk held open by something else is not an orphan; close whatever "
                             "is using it -- `wsl --shutdown` for WSL, or quit Docker Desktop -- "
