@@ -50,18 +50,6 @@ constexpr std::uint64_t mebibyte = 1024ULL * 1024;
 /// that writing it does not dominate the run.
 constexpr std::uint64_t junk_megabytes = 512;
 
-/// A sink that ignores everything: the assertions are about the file.
-class QuietSink final : public wsldisk::ops::ProgressSink {
-public:
-    void step_started(std::size_t, const wsldisk::ops::StepPlan&) override {}
-
-    void step_finished(std::size_t, const wsldisk::ops::StepPlan&) override {}
-
-    void step_progress(const wsldisk::DiskProgress&) override {}
-
-    void message(std::string_view) override {}
-};
-
 [[nodiscard]] bool ready() {
     if (const auto blocker = integration_blocker(); blocker.has_value()) {
         SKIP(*blocker);
@@ -129,7 +117,7 @@ TEST_CASE("compact reclaims what was freed inside the guest", "[integration]") {
                                clock,
                                registered(registry, distro.name()),
                                CompactOptions{.shutdown = true}};
-    QuietSink sink;
+    wsldisk::ops::NullSink sink;
 
     const auto outcome = run(operation, sink, RunOptions{});
     if (!outcome.has_value()) {
@@ -158,7 +146,18 @@ TEST_CASE("compact refuses rather than stopping WSL on its own", "[integration]"
 
     ScratchDistro distro{"compactbusy"};
     REQUIRE(distro.valid());
-    // Started and left running, so the utility VM holds its disk open.
+
+    // A *second* distribution, left running. This test used to boot only the
+    // target and expect a refusal, which passed for the wrong reason: with
+    // nothing else up the utility VM idles out and lets the disk go, so what it
+    // was really pinning was `unlock_timeout` giving up before that happened.
+    //
+    // The refusal belongs to the case that genuinely cannot be waited out. The
+    // VM stays up for this one and holds every attached disk, the target's
+    // included; stopping it to get around that is the user's call, not ours (D9).
+    ScratchDistro holder{"compactholder"};
+    REQUIRE(holder.valid());
+    REQUIRE(holder.boots());
     REQUIRE(distro.boots());
 
     const Win32Registry registry;
@@ -167,15 +166,53 @@ TEST_CASE("compact refuses rather than stopping WSL on its own", "[integration]"
     const WslExeHost host;
     const SystemClock clock;
     CompactOperation operation{disks, filesystem, host, clock, registered(registry, distro.name())};
-    QuietSink sink;
+    wsldisk::ops::NullSink sink;
 
     const auto outcome = run(operation, sink, RunOptions{});
 
-    // Decision D9. Terminating the target is not enough, and stopping every
-    // other distribution to get around that is the user's call, not ours.
     REQUIRE_FALSE(outcome.has_value());
     CHECK(outcome.error().code == wsldisk::ErrorCode::DistroBusy);
+    // Named, so the user knows which window to close.
+    CHECK(outcome.error().message.find(holder.name()) != std::string::npos);
     CHECK(outcome.error().remedy.find("--shutdown") != std::string::npos);
+}
+
+TEST_CASE("compact waits for the utility VM rather than demanding --shutdown", "[integration]") {
+    if (!ready()) {
+        return;
+    }
+
+    ScratchDistro distro{"compactwait"};
+    REQUIRE(distro.valid());
+    REQUIRE(distro.boots());
+
+    const WslExeHost host;
+    // Anything else running keeps the VM up, and then no wait can succeed --
+    // which is the case the test above covers. Here the point is the other one.
+    const auto running = host.running();
+    REQUIRE(running.has_value());
+    for (const std::string& name : *running) {
+        if (name != distro.name()) {
+            SKIP("another distribution is running (" + name + "), so the VM cannot idle out");
+        }
+    }
+
+    const Win32Registry registry;
+    const Win32FileSystem filesystem;
+    const Win32VirtualDisk disks;
+    const SystemClock clock;
+    CompactOperation operation{disks, filesystem, host, clock, registered(registry, distro.name())};
+    wsldisk::ops::NullSink sink;
+
+    // No `--shutdown`: terminating the target leaves nothing running, the VM
+    // shuts down on its idle timeout -- about a minute, measured at 66.6s and
+    // 66.7s -- and the disk comes free on its own. Five seconds of waiting used
+    // to turn this into an exit 11 telling the user to stop everything.
+    const auto outcome = run(operation, sink, RunOptions{});
+    if (!outcome.has_value()) {
+        FAIL("compact failed: " << outcome.error().to_string());
+    }
+    CHECK(distro.boots());
 }
 
 TEST_CASE("compact changes nothing on a dry run against a real disk", "[integration]") {
@@ -195,7 +232,7 @@ TEST_CASE("compact changes nothing on a dry run against a real disk", "[integrat
     REQUIRE(before.has_value());
 
     CompactOperation operation{disks, filesystem, host, clock, registered(registry, distro.name())};
-    QuietSink sink;
+    wsldisk::ops::NullSink sink;
 
     const auto outcome = run(operation, sink, RunOptions{.dry_run = true});
 

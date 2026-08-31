@@ -23,13 +23,31 @@
     lists every source. Use this to pick up a change the file list does not show,
     such as an edit to the preset itself.
 
+.PARAMETER Changed
+    Run clang-tidy over only the sources that differ from `origin/main`, instead
+    of all of them.
+
+    For the inner loop, where the alternative is not running it at all. A changed
+    header is a different matter -- every translation unit that includes it could
+    have moved -- so if one has changed this checks everything anyway rather than
+    quietly checking less than it claims.
+
+.PARAMETER Jobs
+    How many clang-tidy processes to run at once. Defaults to two fewer than the
+    machine has cores, which leaves it usable while the check runs.
+
 .EXAMPLE
     . .\scripts\dev-shell.ps1
     .\scripts\lint.ps1
+
+.EXAMPLE
+    .\scripts\lint.ps1 -Changed
 #>
 [CmdletBinding()]
 param(
-    [switch]$Configure
+    [switch]$Configure,
+    [switch]$Changed,
+    [int]$Jobs = 0
 )
 
 $ErrorActionPreference = 'Stop'
@@ -167,6 +185,43 @@ function Test-StaleCompileDatabase {
     return $false
 }
 
+function Select-ChangedSources {
+    <#
+    .SYNOPSIS
+        The sources under `src/` that differ from `origin/main`, for `-Changed`.
+
+    .DESCRIPTION
+        Committed on this branch, staged, or merely saved -- all three count, so
+        the check covers the work in front of you rather than the last commit.
+
+        A changed header returns everything. clang-tidy sees a translation unit,
+        not a file: edit `interfaces.h` and any of the thirty-eight could have
+        moved, and a check that reported "1 file" there would be claiming a pass
+        it had not earned.
+    #>
+    param([string[]]$All)
+
+    $paths = @()
+    $base = git merge-base HEAD origin/main 2>$null
+    if ($LASTEXITCODE -eq 0 -and $base) { $paths += git diff --name-only --diff-filter=d $base }
+    $paths += git diff --name-only --diff-filter=d
+    $paths += git diff --name-only --diff-filter=d --cached
+    $global:LASTEXITCODE = 0
+
+    $touched = @($paths | Where-Object { $_ -like 'src/*' } | Sort-Object -Unique)
+    if ($touched | Where-Object { $_ -like '*.h' }) {
+        Write-Host "  a header changed, so every translation unit is in scope"
+        return $All
+    }
+
+    $wanted = [System.Collections.Generic.HashSet[string]]::new(
+        [System.StringComparer]::OrdinalIgnoreCase)
+    foreach ($path in $touched) {
+        [void]$wanted.Add([System.IO.Path]::GetFullPath((Join-Path $repoRoot $path)))
+    }
+    return @($All | Where-Object { $wanted.Contains($_) })
+}
+
 Push-Location $repoRoot
 try {
     $sources = Get-ChildItem -Recurse -Path src, tests -Include *.cpp, *.h, *.in |
@@ -191,7 +246,42 @@ try {
             if ($LASTEXITCODE -ne 0) { throw "cmake --preset x64-lint failed" }
         }
 
-        clang-tidy -p build/x64-lint --extra-arg=-Wno-unused-command-line-argument @cpp
+        $targets = if ($Changed) { Select-ChangedSources $cpp } else { $cpp }
+        if ($targets.Count -eq 0) {
+            Write-Host "  nothing changed under src/"
+            $global:LASTEXITCODE = 0
+            return
+        }
+
+        # One process per file, across the cores. clang-tidy treats every
+        # translation unit independently anyway, so this is the same work in the
+        # same order of magnitude of CPU -- it was simply being done on one core,
+        # which is how a full pass came to take a quarter of an hour on a
+        # twenty-core machine and became something to skip rather than run.
+        $jobs = if ($Jobs -gt 0) { $Jobs } else { [Math]::Max(1, [Environment]::ProcessorCount - 2) }
+        $database = Join-Path $repoRoot 'build/x64-lint'
+        Write-Host "  $($targets.Count) file(s), $jobs at a time"
+
+        $reports = $targets | ForEach-Object -ThrottleLimit $jobs -Parallel {
+            $lines = & clang-tidy -p $using:database --quiet `
+                --extra-arg=-Wno-unused-command-line-argument $_ 2>&1
+            # "213847 warnings generated." is the front end counting diagnostics
+            # it then suppressed, one line per file. Thirty-eight of those buried
+            # the four findings that mattered.
+            $kept = $lines | Where-Object { $_ -notmatch '^\d+ warnings generated\.$' }
+            [pscustomobject]@{
+                Failed = ($LASTEXITCODE -ne 0)
+                Output = ($kept | Out-String)
+            }
+        }
+
+        foreach ($report in $reports) {
+            if ($report.Output.Trim()) { Write-Host $report.Output.TrimEnd() }
+        }
+        # Exit code alone, as before: whether a finding is fatal is `.clang-tidy`'s
+        # decision, and this has to agree with CI about it rather than invent a
+        # stricter rule of its own.
+        $global:LASTEXITCODE = if (@($reports | Where-Object { $_.Failed }).Count -gt 0) { 1 } else { 0 }
     }
 
     Invoke-Check 'actionlint' {

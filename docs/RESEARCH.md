@@ -385,6 +385,55 @@ somewhere between the two columns. What the numbers establish is that the range
 runs from "reclaims everything" to "reclaims nothing", not where a given
 distribution falls in it.
 
+### The utility VM's idle timeout (D9 correction) — measured
+
+D9 records that the VHDX handle "is never released on a timer — it survived
+five minutes of polling". That is wrong, and it was making `compact <distro>`
+fail on machines where it should have worked.
+
+With **no** distribution running, the utility VM shuts down on its idle timeout
+and releases every disk it held. Measured on WSL 2.7.8.0 by terminating the only
+running distribution and polling for an exclusive open:
+
+| run | released after |
+|---|---|
+| 1 | 66.6s |
+| 2 | 66.7s |
+
+`vmIdleTimeout` defaults to 60 seconds and is settable in `.wslconfig`, which
+matches the numbers: sixty seconds of idle, then a few to wind down. `vmmemWSL`
+disappears at the same moment.
+
+The half of D9 that stands is the important one: while *any* distribution is
+running the VM stays up and holds every attached disk, so stopping only the
+target achieves nothing. The likely explanation for the original measurement is
+that something else was running — Docker Desktop registers two distributions
+and keeps them up, which is easy to miss.
+
+#### What this changed
+
+`unlock_timeout` was five seconds, chosen *because* the handle was thought never
+to be released. It gave up about a minute early, so `compact Ubuntu` refused on a
+machine where simply waiting would have worked, and told the user to re-run with
+`--shutdown` — stopping every distribution and every container — for no reason.
+
+Now 90 seconds, which outlasts the idle timeout with margin — and spent only
+when it can be won. If another distribution is running the VM never idles out, so
+the wait is skipped and the refusal is immediate rather than a minute and a half
+later.
+
+One trap on the way: `wsl --list --running` can still name a distribution for a
+moment after it has been terminated. Asked straight after the terminate, which is
+where that decision is made, the stale entry refused every ordinary run a second
+after starting it — naming as the holder the distribution wsldisk had just
+stopped itself. The check drops the target for that reason; the message printed
+after a full wait does not, because by then the list has settled and a target
+that appears in it really has been started again.
+
+Found by dogfooding: the reported failure was `compact Ubuntu` sitting through
+ten "waiting for the disk to be released" lines and then refusing, on a machine
+where `wsl --list --running` said nothing was running at all.
+
 ### Incidental
 
 `wsl.exe` prints `Failed to translate '<path>'` to stderr for every Windows PATH

@@ -2,6 +2,9 @@
 
 #include <catch2/catch_test_macros.hpp>
 
+#include <algorithm>
+#include <chrono>
+#include <format>
 #include <optional>
 #include <string>
 #include <vector>
@@ -12,6 +15,7 @@
 #include "fake_virtual_disk.h"
 #include "fake_wsl_host.h"
 #include "lxss_hives.h"
+#include "model/config.h"
 #include "model/distro.h"
 #include "ops/runner.h"
 #include "recording_sink.h"
@@ -20,6 +24,7 @@ using wsldisk::ErrorCode;
 using wsldisk::WslCommandResult;
 using wsldisk::model::Distro;
 using wsldisk::model::enumerate;
+using wsldisk::model::max_unlock_timeout_seconds;
 using wsldisk::ops::CompactOperation;
 using wsldisk::ops::CompactOptions;
 using wsldisk::ops::run;
@@ -203,9 +208,49 @@ TEST_CASE("compact never shuts WSL down on its own", "[ops][compact]") {
     CHECK(outcome.error().remedy.find("--shutdown") != std::string::npos);
 }
 
+TEST_CASE("compact still waits when the only name running is the one it stopped", "[ops][compact]") {
+    // `wsl --list --running` can still name a distribution for a moment after
+    // it has been terminated. Counting that as somebody else holding the disk
+    // refused every ordinary `compact <distro>` a second after starting it --
+    // naming, as the holder, the distribution wsldisk had just stopped itself.
+    Machine machine;
+    machine.host.set_running({"Ubuntu"});
+    machine.filesystem.lock_file(ubuntu_disk);
+
+    CompactOperation operation{machine.disks, machine.filesystem, machine.host, machine.clock,
+                               machine.distro("Ubuntu")};
+
+    const auto outcome = run(operation, machine.sink, RunOptions{});
+
+    REQUIRE_FALSE(outcome.has_value());
+    // It waited the whole timeout rather than refusing at once.
+    CHECK(machine.clock.total_slept() >= std::chrono::seconds{66});
+}
+
+TEST_CASE("compact does not wait out a timeout it cannot win", "[ops][compact]") {
+    // The VM lets go only once nothing is running. While docker-desktop is up
+    // it never will, so the ninety seconds would buy an answer that was already
+    // known -- and the user would sit in front of them before being told.
+    Machine machine;
+    machine.host.set_running({"docker-desktop"});
+    machine.filesystem.lock_file(ubuntu_disk);
+
+    CompactOperation operation{machine.disks, machine.filesystem, machine.host, machine.clock,
+                               machine.distro("Ubuntu")};
+
+    const auto outcome = run(operation, machine.sink, RunOptions{});
+
+    REQUIRE_FALSE(outcome.has_value());
+    CHECK(outcome.error().code == ErrorCode::DistroBusy);
+    CHECK(machine.clock.slept().empty());
+    CHECK(machine.sink.statuses.empty());
+}
+
 TEST_CASE("compact refuses a held disk even when nothing else is running", "[ops][compact]") {
-    // Something outside WSL has it open. There is nobody to name, but the
-    // refusal still has to happen and still has to say what to do.
+    // Nothing is running, so there is nobody to name. That used to read as
+    // "something else is holding it" with advice to stop distributions that
+    // were already stopped; it is the utility VM winding down, and the remedy
+    // says so.
     Machine machine;
     machine.filesystem.lock_file(ubuntu_disk);
 
@@ -215,7 +260,32 @@ TEST_CASE("compact refuses a held disk even when nothing else is running", "[ops
     const auto outcome = run(operation, machine.sink, RunOptions{});
 
     REQUIRE_FALSE(outcome.has_value());
-    CHECK(outcome.error().message.find("something else is holding it") != std::string::npos);
+    CHECK(outcome.error().message.find("still held by the WSL utility VM") != std::string::npos);
+    CHECK(outcome.error().remedy.find("winding down") != std::string::npos);
+    // The suggested longer wait is double the current one.
+    CHECK(outcome.error().remedy.find("unlock_timeout_seconds 180") != std::string::npos);
+}
+
+TEST_CASE("the longer wait compact suggests is one the config would accept", "[ops][compact]") {
+    // It suggests double the current wait, and the config caps the value at an
+    // hour. Doubling something already near the cap would produce advice that
+    // `wsldisk config set` then refuses, which is worse than no advice.
+    Machine machine;
+    machine.filesystem.lock_file(ubuntu_disk);
+
+    CompactOperation operation{
+        machine.disks,
+        machine.filesystem,
+        machine.host,
+        machine.clock,
+        machine.distro("Ubuntu"),
+        CompactOptions{.unlock_timeout = std::chrono::seconds{max_unlock_timeout_seconds}}};
+
+    const auto outcome = run(operation, machine.sink, RunOptions{});
+
+    REQUIRE_FALSE(outcome.has_value());
+    CHECK(outcome.error().remedy.find(std::format("unlock_timeout_seconds {}", max_unlock_timeout_seconds)) !=
+          std::string::npos);
 }
 
 TEST_CASE("compact --shutdown stops everything and compacts", "[ops][compact]") {
@@ -234,10 +304,12 @@ TEST_CASE("compact --shutdown stops everything and compacts", "[ops][compact]") 
     CHECK(machine.disks.compacted().size() == 1);
 }
 
-TEST_CASE("compact waits briefly for the disk before giving up", "[ops][compact]") {
-    // Measurement says the handle is never released on a timer, so the wait is
-    // short by design: a long one would only delay a refusal the user has to
-    // act on anyway.
+TEST_CASE("compact waits long enough for the utility VM to idle out", "[ops][compact]") {
+    // The wait used to be five seconds, on a measurement that said the handle is
+    // never released on a timer. It is: with nothing running, the VM shuts down
+    // on its idle timeout and lets go -- 66.6s and 66.7s on two consecutive runs
+    // against WSL 2.7.8.0, whose vmIdleTimeout defaults to 60s. Five seconds
+    // gave up about a minute early and sent the user to --shutdown for nothing.
     Machine machine;
     machine.filesystem.lock_file(ubuntu_disk);
 
@@ -247,8 +319,34 @@ TEST_CASE("compact waits briefly for the disk before giving up", "[ops][compact]
     const auto outcome = run(operation, machine.sink, RunOptions{});
 
     REQUIRE_FALSE(outcome.has_value());
-    CHECK(machine.clock.total_slept() <= std::chrono::seconds{6});
-    CHECK_FALSE(machine.clock.slept().empty());
+    // Long enough to outlast the idle timeout, and still bounded: a running
+    // distribution keeps the VM up forever and no wait would help.
+    CHECK(machine.clock.total_slept() >= std::chrono::seconds{66});
+    CHECK(machine.clock.total_slept() <= std::chrono::seconds{91});
+}
+
+TEST_CASE("compact explains the wait once and then just counts", "[ops][compact]") {
+    // It polls twice a second and used to print the whole sentence every time.
+    // Over a five-second wait that was ten identical lines; over ninety it would
+    // be a screenful of the same words. Now the explanation is said once and the
+    // countdown goes on a line that redraws.
+    Machine machine;
+    machine.filesystem.lock_file(ubuntu_disk);
+
+    CompactOperation operation{machine.disks, machine.filesystem, machine.host, machine.clock,
+                               machine.distro("Ubuntu")};
+
+    REQUIRE_FALSE(run(operation, machine.sink, RunOptions{}).has_value());
+
+    const auto explained = std::ranges::count_if(machine.sink.messages, [](const std::string& line) {
+        return line.find("utility VM still has the disk open") != std::string::npos;
+    });
+    CHECK(explained == 1);
+    // One tick per second of the ninety, none of them a repeat.
+    CHECK(machine.sink.statuses.size() == 90);
+    CHECK(machine.sink.statuses.front() == "waiting for the disk ... 0s of 90s");
+    CHECK(machine.sink.statuses.back() == "waiting for the disk ... 89s of 90s");
+    CHECK(std::ranges::adjacent_find(machine.sink.statuses) == machine.sink.statuses.end());
 }
 
 TEST_CASE("compact reports a lock check it could not make", "[ops][compact]") {

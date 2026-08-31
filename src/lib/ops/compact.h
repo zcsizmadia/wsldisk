@@ -35,10 +35,19 @@ struct CompactOptions {
 
     /// How long to wait for the disk to be released after terminating.
     ///
-    /// Short on purpose. Measurement says the handle is never released on a
-    /// timer -- it survived five minutes of polling -- so a long wait would only
-    /// delay a refusal the user has to act on anyway.
-    std::chrono::milliseconds unlock_timeout{std::chrono::seconds{5}};
+    /// Ninety seconds, because the handle *is* released on a timer -- the
+    /// measurement behind D9 was wrong. With no distribution running, the
+    /// utility VM shuts down on its idle timeout and lets go: measured at 66.6s
+    /// and 66.7s on two consecutive runs against WSL 2.7.8.0, whose
+    /// `vmIdleTimeout` defaults to 60 seconds.
+    ///
+    /// The old five seconds gave up about a minute early, so `compact <distro>`
+    /// refused on a machine where waiting would simply have worked, and told the
+    /// user to re-run with `--shutdown` for no reason.
+    ///
+    /// Only spent when it can be won: if another distribution is running the VM
+    /// never idles out, so the wait is skipped and the refusal comes at once.
+    std::chrono::milliseconds unlock_timeout{std::chrono::seconds{90}};
 
     /// How long to give the guest's `fstrim`.
     std::chrono::milliseconds trim_timeout{std::chrono::minutes{10}};
@@ -134,6 +143,14 @@ private:
 
     /// The distributions keeping the utility VM alive.
     [[nodiscard]] std::vector<std::string> others_running() const;
+
+    /// The same, minus the target.
+    ///
+    /// `wsl --list --running` can still name a distribution for a moment after
+    /// it has been terminated. Asked straight after the terminate -- which is
+    /// where the decision to wait at all is made -- that stale entry would
+    /// refuse a compaction that was seconds away from working.
+    [[nodiscard]] std::vector<std::string> others_running_excluding(const model::Distro& distro) const;
 
     const IVirtualDisk* disks_;
     const IFileSystem* filesystem_;

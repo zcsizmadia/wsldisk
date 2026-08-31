@@ -62,16 +62,18 @@ jobs:
           python -m ruff check scripts/
           python -m pytest scripts/tests -q
 
-  # clang-format and clang-tidy need the pinned LLVM and a compile database,
-  # which means a vcpkg restore and a choco install -- about six minutes, and
-  # the slowest thing gating a pull request.
+  # main and the weekly schedule only, because this job is slow for a reason
+  # parallelism cannot fix: clang-format and clang-tidy need the pinned LLVM and
+  # a compile database, which is a vcpkg restore and a choco install -- about six
+  # minutes before either tool starts. On a pull request that is the longest pole
+  # by a wide margin.
   #
-  # They run on main rather than on every push to a branch. Both tools are
-  # pinned and deterministic, `scripts/lint.ps1` runs exactly the same pair
-  # locally, and since it now refuses to run on any version other than the
-  # pinned one, a local pass means the same thing CI would have said. The trade
-  # is explicit: a formatting or clang-tidy slip that was not run locally lands
-  # on main and is fixed forward there instead of blocking the pull request.
+  # clang-tidy itself was the other half of the problem and is fixed: one process
+  # over all 38 files on one core, a quarter of an hour, so `scripts/lint.ps1`
+  # became a check people skipped and a slip left main red across four merges
+  # (#96). It now runs one process per file across the cores, which is under
+  # three minutes locally, so running it before pushing is a reasonable ask
+  # again -- see CONTRIBUTING.md. `asan` gates pull requests; this does not.
   lint-native:
     name: lint (clang-format, clang-tidy)
     if: github.event_name != 'pull_request'
@@ -126,9 +128,26 @@ jobs:
         shell: pwsh
         run: |
           $files = Get-ChildItem -Recurse -Path src -Include *.cpp | ForEach-Object { $_.FullName }
+          $jobs = [Math]::Max(1, [Environment]::ProcessorCount)
+          Write-Host "$($files.Count) file(s), $jobs at a time"
+          # One process per file. clang-tidy treats every translation unit
+          # independently, so this is the same work spread over the cores rather
+          # than queued behind one; `scripts/lint.ps1` does the same thing.
+          #
           # The unused-argument diagnostics come from the driver, before the check
           # filter in .clang-tidy can suppress them.
-          clang-tidy -p build/x64-lint --extra-arg=-Wno-unused-command-line-argument @files
+          $reports = $files | ForEach-Object -ThrottleLimit $jobs -Parallel {
+              $lines = & clang-tidy -p build/x64-lint --quiet `
+                  --extra-arg=-Wno-unused-command-line-argument $_ 2>&1
+              # One "N warnings generated." per file, from the front end counting
+              # diagnostics it then suppressed. Noise that buries the findings.
+              $kept = $lines | Where-Object { $_ -notmatch '^\d+ warnings generated\.$' }
+              [pscustomobject]@{ Failed = ($LASTEXITCODE -ne 0); Output = ($kept | Out-String) }
+          }
+          foreach ($report in $reports) {
+              if ($report.Output.Trim()) { Write-Host $report.Output.TrimEnd() }
+          }
+          if (@($reports | Where-Object { $_.Failed }).Count -gt 0) { exit 1 }
 
   build-test:
     name: ${{ matrix.toolchain }} ${{ matrix.architecture }} ${{ matrix.configuration }}
@@ -245,13 +264,13 @@ jobs:
           fail_ci_if_error: false
           token: ${{ secrets.CODECOV_TOKEN }}
 
-  # main only, like lint-native. Run it locally before pushing -- see
-  # CONTRIBUTING.md. This is the check most likely to find something the other
-  # builds cannot: it caught a stack-use-after-scope in #44 that MSVC Debug and
-  # Release, clang-cl Debug and Release, and the coverage build all passed.
+  # This is the check most likely to find something the other builds cannot: it
+  # caught a stack-use-after-scope in #44 that MSVC Debug and Release, clang-cl
+  # Debug and Release, and the coverage build all passed. It was main-only
+  # alongside lint-native and gates pull requests again for the same reason --
+  # a build and a test run, in the time the matrix takes anyway.
   asan:
     name: AddressSanitizer
-    if: github.event_name != 'pull_request'
     runs-on: windows-2025
     timeout-minutes: 45
     steps:

@@ -76,6 +76,12 @@ public:
     virtual void step_progress(const DiskProgress& progress) = 0;
     /// Anything else worth showing: a warning, or what an undo is doing.
     virtual void message(std::string_view text) = 0;
+    /// A line that will be replaced by whatever is printed next.
+    ///
+    /// For the state of something still running -- a countdown, a byte total --
+    /// where each update supersedes the last. `message` would leave the screen
+    /// full of near-identical lines; this leaves one that keeps changing.
+    virtual void status(std::string_view text) = 0;
 };
 
 /// A sink that drops everything, for callers that do not want output.
@@ -88,6 +94,8 @@ public:
     void step_progress(const DiskProgress& /*progress*/) override {}
 
     void message(std::string_view /*text*/) override {}
+
+    void status(std::string_view /*text*/) override {}
 };
 
 /// Undo entries, popped in reverse.

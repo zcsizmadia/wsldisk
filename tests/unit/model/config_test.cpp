@@ -39,7 +39,7 @@ TEST_CASE("an empty config is the defaults", "[model][config]") {
     CHECK(config->scan_dirs.empty());
     CHECK(config->compact_trim);
     CHECK_FALSE(config->compact_restart);
-    CHECK(config->unlock_timeout_seconds == 5);
+    CHECK(config->unlock_timeout_seconds == 90);
 }
 
 TEST_CASE("every key is read from the file", "[model][config]") {
@@ -71,7 +71,7 @@ TEST_CASE("a partial config keeps the defaults for the rest", "[model][config]")
     REQUIRE(config.has_value());
     CHECK(config->compact_restart);
     CHECK(config->compact_trim);
-    CHECK(config->unlock_timeout_seconds == 5);
+    CHECK(config->unlock_timeout_seconds == 90);
 }
 
 TEST_CASE("a malformed config says where", "[model][config]") {
@@ -109,8 +109,8 @@ TEST_CASE("scan.dirs of the wrong type is ignored rather than fatal", "[model][c
 }
 
 TEST_CASE("an unlock timeout past the maximum is refused", "[model][config]") {
-    // The disk is never released on a timer, so a long wait only delays a
-    // refusal the user has to act on anyway.
+    // Past a couple of minutes a longer wait buys nothing: either the VM has
+    // idled out already or something is running and it never will.
     const auto config = parse_config("[wsl]\nunlock_timeout_seconds = 86400\n");
 
     REQUIRE_FALSE(config.has_value());
@@ -139,7 +139,7 @@ TEST_CASE("the defaults round-trip too", "[model][config]") {
 
     REQUIRE(reparsed.has_value());
     CHECK(reparsed->compact_trim);
-    CHECK(reparsed->unlock_timeout_seconds == 5);
+    CHECK(reparsed->unlock_timeout_seconds == 90);
     CHECK(reparsed->scan_dirs.empty());
 }
 

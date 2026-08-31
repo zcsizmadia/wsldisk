@@ -196,6 +196,35 @@ TEST_CASE("a filesystem that cannot answer leaves those fields unknown", "[model
     CHECK(info.notes.size() == 4);
 }
 
+TEST_CASE("a disk that is not there is one note, not five", "[model][disk-info]") {
+    // Five probes read the same file. A distribution whose disk had been moved
+    // got five failures and five notes about it, two of them word for word the
+    // same, and none of them said what to do.
+    Machine machine;
+    REQUIRE(machine.filesystem.remove(ubuntu().vhdx_path).has_value());
+
+    const DiskInfo info = machine.run();
+
+    REQUIRE(info.notes.size() == 1);
+    CHECK(info.notes[0].find("does not exist") != std::string::npos);
+    // The remedy, because this one has a name.
+    CHECK(info.notes[0].find("wsldisk relink Ubuntu") != std::string::npos);
+    CHECK_FALSE(info.file_size.has_value());
+    CHECK_FALSE(info.virtual_size.has_value());
+}
+
+TEST_CASE("a missing disk still reports what the guest is using", "[model][disk-info]") {
+    // The registry pointing somewhere wrong says nothing about whether the
+    // distribution is up, and `df` still answers from inside it.
+    Machine machine;
+    REQUIRE(machine.filesystem.remove(ubuntu().vhdx_path).has_value());
+
+    const DiskInfo info = machine.run();
+
+    CHECK(info.guest_used == 8 * gigabyte);
+    CHECK(info.guest_free == 1090921693184ULL);
+}
+
 TEST_CASE("a disk that will not describe itself leaves the size unknown", "[model][disk-info]") {
     // Openable and still unreadable: a handle is not an answer.
     Machine machine;

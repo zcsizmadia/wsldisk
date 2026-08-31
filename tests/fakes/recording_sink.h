@@ -31,6 +31,10 @@ public:
         events.emplace_back(text);
     }
 
+    /// Kept apart from `messages`: a transient line is not something the user
+    /// reads once, and a test that counts messages should not count these.
+    void status(std::string_view text) override { statuses.emplace_back(text); }
+
     /// Whether any message contains `needle`.
     [[nodiscard]] bool said(std::string_view needle) const {
         return std::ranges::any_of(messages, [needle](const std::string& message) {
@@ -42,6 +46,7 @@ public:
     std::vector<std::size_t> finished;
     std::vector<DiskProgress> progress_reports;
     std::vector<std::string> messages;
+    std::vector<std::string> statuses;
     /// Everything in the order it happened, for asserting sequence.
     std::vector<std::string> events;
 };

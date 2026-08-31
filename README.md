@@ -171,7 +171,7 @@ C:\Users\example\AppData\Roaming\wsldisk\config.toml
 scan.dirs:                  D:\WSL
 compact.trim:               true
 compact.restart:            false
-wsl.unlock_timeout_seconds: 5
+wsl.unlock_timeout_seconds: 90
 ```
 
 ```text

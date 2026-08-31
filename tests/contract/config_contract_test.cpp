@@ -151,7 +151,7 @@ TEST_CASE("a missing config file is the defaults against the real filesystem", "
 
     REQUIRE(config.has_value());
     CHECK(config->compact_trim);
-    CHECK(config->unlock_timeout_seconds == 5);
+    CHECK(config->unlock_timeout_seconds == 90);
 }
 
 TEST_CASE("the config path resolves against the real environment", "[contract][config]") {

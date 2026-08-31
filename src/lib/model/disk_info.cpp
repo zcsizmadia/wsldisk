@@ -58,6 +58,50 @@ constexpr std::size_t df_trailing_columns = 5;
     return tokens;
 }
 
+/// The guest half of `measure`: whether the distribution is running and, if it
+/// is -- or `--probe` says to start it -- what `df` reports from inside.
+///
+/// Split out so a missing disk can skip the file measurements and still reach
+/// this. Whether the guest is up is a separate question from whether its `.vhdx`
+/// is where the registry says.
+[[nodiscard]] DiskInfo measure_guest(const Distro& distro, const IWslHost& host, const ProbeOptions& options,
+                                     DiskInfo info) {
+    const auto running = host.running();
+    if (!running.has_value()) {
+        info.notes.push_back(running.error().to_string());
+        return info;
+    }
+
+    const bool is_running = std::ranges::find(*running, distro.name) != running->end();
+    if (!is_running && !options.probe_guest) {
+        // Deliberately not an error and deliberately not a probe: starting a
+        // distribution to measure it would change the thing being measured.
+        info.notes.push_back(
+            std::format("{} is not running; pass --probe to start it and read guest usage", distro.name));
+        return info;
+    }
+
+    const std::vector<std::string> argv{std::string{guest_df}, "-B1", "/"};
+    const auto probe = host.run_as_root(distro.name, argv, options.guest_timeout);
+    if (!probe.has_value()) {
+        info.notes.push_back(probe.error().to_string());
+        return info;
+    }
+    if (!probe->succeeded()) {
+        info.notes.push_back(std::format("df exited {} in {}", probe->exit_code, distro.name));
+        return info;
+    }
+
+    const auto usage = parse_df(probe->standard_output);
+    if (!usage.has_value()) {
+        info.notes.push_back(std::format("could not read df output from {}", distro.name));
+        return info;
+    }
+    info.guest_used = usage->used;
+    info.guest_free = usage->available;
+    return info;
+}
+
 }  // namespace
 
 std::optional<std::uint64_t> DiskInfo::reclaimable() const noexcept {
@@ -92,6 +136,21 @@ std::optional<GuestUsage> parse_df(std::string_view output) {
 DiskInfo measure(const Distro& distro, const IFileSystem& filesystem, const IVirtualDisk& disks,
                  const IWslHost& host, const ProbeOptions& options) {
     DiskInfo info;
+
+    // Five of the measurements below read the same file, so a disk that has been
+    // moved or deleted failed five times and said so five times -- twice in the
+    // same words. Ask once, and say the thing the user can act on: this
+    // distribution points somewhere its disk is not, and `relink` is the fix.
+    //
+    // The guest half still runs. Not being able to measure the file says nothing
+    // about whether the distribution is up.
+    if (!filesystem.exists(distro.vhdx_path)) {
+        info.notes.push_back(
+            std::format("{} does not exist -- {} points at a disk that is not there; "
+                        "`wsldisk relink {} <path>` moves the registry entry to where it went",
+                        distro.vhdx_path.string(), distro.name, distro.name));
+        return measure_guest(distro, host, options, std::move(info));
+    }
 
     if (const auto size = filesystem.file_size(distro.vhdx_path); size.has_value()) {
         info.file_size = *size;
@@ -134,40 +193,7 @@ DiskInfo measure(const Distro& distro, const IFileSystem& filesystem, const IVir
         info.notes.push_back(handle.error().to_string());
     }
 
-    const auto running = host.running();
-    if (!running.has_value()) {
-        info.notes.push_back(running.error().to_string());
-        return info;
-    }
-
-    const bool is_running = std::ranges::find(*running, distro.name) != running->end();
-    if (!is_running && !options.probe_guest) {
-        // Deliberately not an error and deliberately not a probe: starting a
-        // distribution to measure it would change the thing being measured.
-        info.notes.push_back(
-            std::format("{} is not running; pass --probe to start it and read guest usage", distro.name));
-        return info;
-    }
-
-    const std::vector<std::string> argv{std::string{guest_df}, "-B1", "/"};
-    const auto probe = host.run_as_root(distro.name, argv, options.guest_timeout);
-    if (!probe.has_value()) {
-        info.notes.push_back(probe.error().to_string());
-        return info;
-    }
-    if (!probe->succeeded()) {
-        info.notes.push_back(std::format("df exited {} in {}", probe->exit_code, distro.name));
-        return info;
-    }
-
-    const auto usage = parse_df(probe->standard_output);
-    if (!usage.has_value()) {
-        info.notes.push_back(std::format("could not read df output from {}", distro.name));
-        return info;
-    }
-    info.guest_used = usage->used;
-    info.guest_free = usage->available;
-    return info;
+    return measure_guest(distro, host, options, std::move(info));
 }
 
 }  // namespace wsldisk::model
