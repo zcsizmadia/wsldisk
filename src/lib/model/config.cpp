@@ -85,6 +85,44 @@ constexpr std::uint32_t max_unlock_timeout_seconds = 3600;
     return text.substr(first, last - first + 1);
 }
 
+/// What to call a setting's type in an error the user reads.
+template <typename T>
+[[nodiscard]] constexpr std::string_view type_name() {
+    if constexpr (std::is_same_v<T, bool>) {
+        return "true or false";
+    } else if constexpr (std::is_integral_v<T>) {
+        return "whole number";
+    } else {
+        return "string";
+    }
+}
+
+/// Reads one setting, refusing a key that is there with the wrong type.
+///
+/// `at_path(...).value_or(default)` silently returned the default when the value
+/// had the wrong type or was out of range, so `trim = "false"` -- a string --
+/// left trimming on, and `config get compact.trim` then said `true` while the
+/// file plainly said otherwise. An out-of-range `unlock_timeout_seconds` *was*
+/// refused, so the file was strict about one mistake and silent about the
+/// neighbouring one.
+///
+/// Absent keys keep the default, which is not a mistake: the defaults are a
+/// complete configuration.
+template <typename T>
+[[nodiscard]] Status read_into(const toml::table& table, std::string_view key, T& target) {
+    const auto node = table.at_path(key);
+    if (!node) {
+        return {};
+    }
+    const std::optional<T> value = node.value<T>();
+    if (!value.has_value()) {
+        return fail(ErrorCode::Usage, std::format("{} is not a {}", key, type_name<T>()),
+                    "check the value's type, or delete the line to use the default");
+    }
+    target = *value;
+    return {};
+}
+
 }  // namespace
 
 std::vector<std::string> config_keys() {
@@ -114,9 +152,17 @@ Result<Config> parse_config(std::string_view text) {
             }
         }
     }
-    config.compact_trim = table.at_path(compact_trim_key).value_or(config.compact_trim);
-    config.compact_restart = table.at_path(compact_restart_key).value_or(config.compact_restart);
-    config.unlock_timeout_seconds = table.at_path(unlock_timeout_key).value_or(config.unlock_timeout_seconds);
+    if (const Status read = read_into(table, compact_trim_key, config.compact_trim); !read.has_value()) {
+        return std::unexpected(read.error());
+    }
+    if (const Status read = read_into(table, compact_restart_key, config.compact_restart);
+        !read.has_value()) {
+        return std::unexpected(read.error());
+    }
+    if (const Status read = read_into(table, unlock_timeout_key, config.unlock_timeout_seconds);
+        !read.has_value()) {
+        return std::unexpected(read.error());
+    }
     if (config.unlock_timeout_seconds > max_unlock_timeout_seconds) {
         return fail(ErrorCode::Usage,
                     std::format("{} is {}, which is more than the {} second maximum", unlock_timeout_key,

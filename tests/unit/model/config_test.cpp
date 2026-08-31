@@ -345,3 +345,47 @@ TEST_CASE("the wslconfig lives under USERPROFILE", "[model][config]") {
     REQUIRE(path.has_value());
     CHECK(*path == std::filesystem::path{LR"(C:\Users\example\.wslconfig)"});
 }
+
+TEST_CASE("a setting with the wrong type is refused, not silently defaulted", "[model][config]") {
+    // `at_path(...).value_or(default)` returned the default for a value of the
+    // wrong type, so `trim = "false"` left trimming on and `config get
+    // compact.trim` then said `true` while the file plainly said otherwise. The
+    // file was strict about an out-of-range timeout and silent about this.
+    const auto parsed = parse_config("[compact]\ntrim = \"false\"\n");
+
+    REQUIRE_FALSE(parsed.has_value());
+    CHECK(parsed.error().code == ErrorCode::Usage);
+    CHECK(parsed.error().message.find("compact.trim") != std::string::npos);
+    CHECK(parsed.error().message.find("true or false") != std::string::npos);
+}
+
+TEST_CASE("a numeric setting given a string is refused", "[model][config]") {
+    const auto parsed = parse_config("[wsl]\nunlock_timeout_seconds = \"30\"\n");
+
+    REQUIRE_FALSE(parsed.has_value());
+    CHECK(parsed.error().code == ErrorCode::Usage);
+    CHECK(parsed.error().message.find("whole number") != std::string::npos);
+}
+
+TEST_CASE("a setting that is simply absent keeps its default", "[model][config]") {
+    // Absent is not a mistake: the defaults are a complete configuration, and
+    // asking the user to write down what is already true would be ceremony.
+    const auto parsed = parse_config("[compact]\nrestart = true\n");
+
+    REQUIRE(parsed.has_value());
+    CHECK(parsed->compact_restart);
+    CHECK(parsed->compact_trim);
+}
+
+TEST_CASE("compact.restart with the wrong type is refused too", "[model][config]") {
+    // One per setting: each `read_into` call is its own branch, so a check that
+    // only covered `trim` would leave the others able to fail silently.
+    //
+    // A string, not `1`. toml++ converts an integer to a bool quite happily, so
+    // `restart = 1` is accepted -- which is fine, and not the mistake this is
+    // about: the mistake is a value that has no reading at all.
+    const auto parsed = parse_config("[compact]\nrestart = \"yes\"\n");
+
+    REQUIRE_FALSE(parsed.has_value());
+    CHECK(parsed.error().message.find("compact.restart") != std::string::npos);
+}

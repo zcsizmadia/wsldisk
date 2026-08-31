@@ -20,8 +20,12 @@ struct RunOutcome {
     Plan plan;
     /// Absent for a dry run, because nothing executed.
     std::optional<Report> report;
-    /// Whether the undo stack was unwound. True only when execution failed.
-    bool rolled_back = false;
+    // There was a `rolled_back` flag here. It could only ever be set on the path
+    // that returns `std::unexpected` and discards the outcome, so no caller
+    // could observe it true -- the test that covered it had to assert through
+    // the progress sink instead. A field that cannot be read is worse than no
+    // field: it reads as an available answer. What was undone is reported to the
+    // sink as it happens, which is where a user needs it.
 };
 
 /// Runs an operation through its lifecycle.

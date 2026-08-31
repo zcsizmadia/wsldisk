@@ -32,7 +32,7 @@ _wsldisk() {
     case "$command" in
         list) flags='--help -h --json --verbose -v --yes -y --dry-run --log --probe' ;;
         info) flags='--help -h --json --verbose -v --yes -y --dry-run --log --probe' ;;
-        orphans) flags='--help -h --json --verbose -v --yes -y --dry-run --log --scan --delete --relink --to' ;;
+        orphans) flags='--help -h --json --verbose -v --yes -y --dry-run --log --scan --delete --to --relink' ;;
         relink) flags='--help -h --json --verbose -v --yes -y --dry-run --log' ;;
         trim) flags='--help -h --json --verbose -v --yes -y --dry-run --log' ;;
         compact) flags='--help -h --json --verbose -v --yes -y --dry-run --log --all --file --no-trim --restart --shutdown' ;;

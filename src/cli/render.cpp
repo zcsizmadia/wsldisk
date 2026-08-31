@@ -11,6 +11,24 @@
 namespace wsldisk::cli {
 namespace {
 
+/// How wide a UTF-8 string is on screen, in code points.
+///
+/// Not `std::string::size()`, which counts bytes: a name or path with any
+/// non-ASCII character was over-counted, and every later column on that row
+/// started early. Code points rather than grapheme clusters or East Asian
+/// widths -- those matter too, but this is the difference between a table that
+/// is subtly wrong for `Übuntu` and one that is not.
+[[nodiscard]] std::size_t display_width(std::string_view text) {
+    std::size_t width = 0;
+    for (const char byte : text) {
+        // Continuation bytes are 10xxxxxx and do not start a code point.
+        if ((static_cast<unsigned char>(byte) & 0xC0U) != 0x80U) {
+            ++width;
+        }
+    }
+    return width;
+}
+
 /// What an unmeasurable cell prints as. A dash rather than a blank, so a column
 /// that is entirely unknown still looks like a column.
 constexpr std::string_view unknown = "-";
@@ -71,7 +89,7 @@ void Table::render(std::ostream& out) const {
     for (const std::vector<Cell>& row : rows_) {
         std::vector<std::string> text = formatted(row);
         for (std::size_t column = 0; column < text.size(); ++column) {
-            widths[column] = std::max(widths[column], text[column].size());
+            widths[column] = std::max(widths[column], display_width(text[column]));
         }
         body.push_back(std::move(text));
     }
@@ -82,7 +100,7 @@ void Table::render(std::ostream& out) const {
             // No padding after the last column: trailing spaces are invisible
             // until someone diffs the output, and the golden files do.
             if (column + 1 < cells.size()) {
-                out << std::string(widths[column] - cells[column].size() + column_gap, ' ');
+                out << std::string(widths[column] - display_width(cells[column]) + column_gap, ' ');
             }
         }
         out << '\n';

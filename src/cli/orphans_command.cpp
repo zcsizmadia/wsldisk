@@ -256,10 +256,16 @@ void add_orphans_command(CLI::App& app, GlobalOptions& global, OrphansOptions& o
 
     orphans->add_option("--scan", options.scan_dirs, "Extra directories to search")->option_text("DIR ...");
     orphans->add_flag("--delete", options.remove, "Delete what was found, after confirming");
-    orphans->add_option("--relink", options.relink_distro, "Point this distribution at a disk")
-        ->option_text("DISTRO")
-        ->needs(
-            orphans->add_option("--to", options.relink_path, "The disk to point it at")->option_text("PATH"));
+    // Each needs the other. Only `--relink needs --to` was declared, so a lone
+    // `--to` fell through to a plain scan: someone who forgot `--relink Ubuntu`
+    // got an orphan listing and exit 0, and believed the relink had happened.
+    CLI::Option* to =
+        orphans->add_option("--to", options.relink_path, "The disk to point it at")->option_text("PATH");
+    CLI::Option* relink =
+        orphans->add_option("--relink", options.relink_distro, "Point this distribution at a disk")
+            ->option_text("DISTRO");
+    relink->needs(to);
+    to->needs(relink);
 }
 
 }  // namespace wsldisk::cli

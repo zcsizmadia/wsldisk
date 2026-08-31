@@ -95,6 +95,18 @@ public:
         return trimmed_bytes_;
     }
 
+    /// Tells the operation which distributions were running before the run began.
+    ///
+    /// `--all --shutdown --restart` needs this. Each target plans when its turn
+    /// comes, and the first target's shutdown stops every later one -- so by the
+    /// time they plan they look as though they were never running, and
+    /// `--restart` silently skips them. The tool stopped them and then declined
+    /// to put them back.
+    ///
+    /// Left unset, the operation asks the host itself, which is right for a
+    /// single target.
+    void set_running_before(const std::vector<std::string>& names);
+
 private:
     /// The steps that only exist when there is a distribution: the trim and the
     /// stop. Split out so the distribution is a reference rather than an
@@ -112,6 +124,10 @@ private:
     /// and does not fail the run, because the compaction already succeeded.
     void restart_guest(const model::Distro& distro, ProgressSink& progress, Report& report,
                        std::size_t index);
+
+    /// Starts the distribution again after a failure, when `--restart` asked for
+    /// it and it was running before. Best effort; never fatal.
+    void restart_if_asked(ProgressSink& progress);
 
     /// Stops whatever is holding the disk, or explains who is.
     [[nodiscard]] Status release_disk(const model::Distro& distro, ProgressSink& progress);
@@ -131,6 +147,7 @@ private:
     std::optional<std::uint64_t> after_;
     std::optional<std::uint64_t> trimmed_bytes_;
     bool was_running_ = false;
+    std::optional<std::vector<std::string>> running_before_;
 };
 
 }  // namespace wsldisk::ops

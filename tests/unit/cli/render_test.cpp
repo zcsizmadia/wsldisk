@@ -210,3 +210,40 @@ TEST_CASE("the json line emits a non-ASCII path as UTF-8", "[cli][render]") {
     CHECK(object.at("name") == "Übuntu");
     CHECK(object.at("vhdx_path") == R"(D:\wsl\Übuntu\ext4.vhdx)");
 }
+
+TEST_CASE("the table lines up when a name is not ASCII", "[cli][render]") {
+    // Widths used to count bytes, so `Übuntu` -- seven bytes, six characters --
+    // was measured one too wide and every later column on that row started
+    // early. A CJK path shifted by one per character.
+    Table table{{"NAME", "PATH"}};
+    table.add_row({Cell{.text = "Übuntu"}, Cell{.text = "one"}});
+    table.add_row({Cell{.text = "Ubuntu"}, Cell{.text = "two"}});
+
+    std::ostringstream out;
+    table.render(out);
+
+    // In *columns*, not bytes. `std::string::find` reports a byte offset, and by
+    // that measure the broken version looked right: it padded `Übuntu` one space
+    // less because it thought the name was seven wide, which cancelled out the
+    // extra byte. On screen the row was a column early.
+    const auto column_of = [](const std::string& line, const std::string& needle) {
+        const std::size_t at = line.find(needle);
+        REQUIRE(at != std::string::npos);
+        std::size_t column = 0;
+        for (std::size_t i = 0; i < at; ++i) {
+            if ((static_cast<unsigned char>(line[i]) & 0xC0U) != 0x80U) {
+                ++column;
+            }
+        }
+        return column;
+    };
+
+    std::istringstream lines{out.str()};
+    std::string header;
+    std::string first;
+    std::string second;
+    std::getline(lines, header);
+    std::getline(lines, first);
+    std::getline(lines, second);
+    CHECK(column_of(first, "one") == column_of(second, "two"));
+}

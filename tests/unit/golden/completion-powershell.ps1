@@ -7,7 +7,7 @@
 $script:WsldiskCommands = @{
     'list' = @('--help', '-h', '--json', '--verbose', '-v', '--yes', '-y', '--dry-run', '--log', '--probe')
     'info' = @('--help', '-h', '--json', '--verbose', '-v', '--yes', '-y', '--dry-run', '--log', '--probe')
-    'orphans' = @('--help', '-h', '--json', '--verbose', '-v', '--yes', '-y', '--dry-run', '--log', '--scan', '--delete', '--relink', '--to')
+    'orphans' = @('--help', '-h', '--json', '--verbose', '-v', '--yes', '-y', '--dry-run', '--log', '--scan', '--delete', '--to', '--relink')
     'relink' = @('--help', '-h', '--json', '--verbose', '-v', '--yes', '-y', '--dry-run', '--log')
     'trim' = @('--help', '-h', '--json', '--verbose', '-v', '--yes', '-y', '--dry-run', '--log')
     'compact' = @('--help', '-h', '--json', '--verbose', '-v', '--yes', '-y', '--dry-run', '--log', '--all', '--file', '--no-trim', '--restart', '--shutdown')

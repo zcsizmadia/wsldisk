@@ -83,8 +83,8 @@ _wsldisk() {
                         '--log' \
                         '--scan' \
                         '--delete' \
-                        '--relink' \
-                        '--to'
+                        '--to' \
+                        '--relink'
                     ;;
                 relink)
                     _arguments \

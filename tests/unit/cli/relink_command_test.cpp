@@ -148,7 +148,7 @@ TEST_CASE("relink reports a registry it cannot read", "[cli][relink]") {
 
 TEST_CASE("relink reports a distribution that will not start", "[cli][relink]") {
     Machine machine;
-    machine.host.on_command("/bin/true", WslCommandResult{.exit_code = 1});
+    machine.host.on_command("/bin/sh", WslCommandResult{.exit_code = 1});
     std::ostringstream out;
 
     CHECK(machine.run(GlobalOptions{}, out) == exit_code_for(ErrorCode::Preflight));
