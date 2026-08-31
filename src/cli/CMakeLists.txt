@@ -6,6 +6,8 @@ find_package(nlohmann_json CONFIG REQUIRED)
 add_library(wsldisk_cli_lib STATIC
     app.cpp
     app.h
+    compact_command.cpp
+    compact_command.h
     info_command.cpp
     info_command.h
     list_command.cpp

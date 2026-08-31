@@ -28,6 +28,10 @@ struct Services {
     IFileSystem* filesystem = nullptr;
     const IVirtualDisk* disks = nullptr;
     const IWslHost* host = nullptr;
+    /// Only the waiting commands need it, but it is here rather than passed
+    /// separately so a command cannot be wired up half from services and half
+    /// from arguments.
+    const IClock* clock = nullptr;
 };
 
 /// One row of the listing.

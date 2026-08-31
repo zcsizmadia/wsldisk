@@ -12,6 +12,33 @@
 
 namespace wsldisk::ops {
 
+/// What one `fstrim` run produced.
+struct TrimResult {
+    /// What it said it trimmed, when it said anything. Absent when `-v` was
+    /// rejected, or when the guest printed something unrecognised. Treat it as
+    /// a report, not a measurement: see `trimmed_bytes_are_misleading`.
+    std::optional<std::uint64_t> trimmed_bytes;
+    /// Whether the run needed the plain `fstrim /` spelling.
+    ///
+    /// busybox rejects some of util-linux's options, and Alpine -- the
+    /// integration fixture -- is busybox. Reported so a test can prove the
+    /// fallback ran rather than inferring it from the absence of a number.
+    bool used_fallback = false;
+};
+
+/// Runs `fstrim` in one distribution, with the `-v` fallback.
+///
+/// Shared by `trim` and by `compact`'s first step rather than written twice:
+/// which spellings the guest takes is a fact about WSL, and two copies of it
+/// would eventually disagree.
+///
+/// `-av` is never used. busybox rejects `-a` outright (spike #1), so this is
+/// `/sbin/fstrim -v /`, retried as plain `/sbin/fstrim /` when the guest
+/// refuses the option. A failure that is not about an option is not retried:
+/// retrying would only hide the reason.
+[[nodiscard]] Result<TrimResult> run_fstrim(const IWslHost& host, const std::string& distro,
+                                            std::chrono::milliseconds timeout, ProgressSink& progress);
+
 /// Discards the guest's unused blocks with `fstrim`.
 ///
 /// The light-touch half of `compact`: it runs inside the distribution and leaves
@@ -33,27 +60,18 @@ public:
     void rollback(ProgressSink& progress) noexcept override;
 
     /// What `fstrim` said it trimmed, when it said anything.
-    ///
-    /// Absent when `-v` was rejected, or when the guest printed something this
-    /// does not recognise. Treat the number as a report, not a measurement:
-    /// see `trimmed_bytes_are_misleading`.
     [[nodiscard]] const std::optional<std::uint64_t>& trimmed_bytes() const noexcept {
-        return trimmed_bytes_;
+        return result_.trimmed_bytes;
     }
 
     /// Whether the run needed the plain `fstrim /` spelling.
-    ///
-    /// busybox rejects some of util-linux's options, and Alpine -- which is the
-    /// integration fixture -- is busybox. Exposed so a test can prove the
-    /// fallback ran rather than inferring it from the absence of a number.
-    [[nodiscard]] bool used_fallback() const noexcept { return used_fallback_; }
+    [[nodiscard]] bool used_fallback() const noexcept { return result_.used_fallback; }
 
 private:
     const IWslHost* host_;
     model::Distro distro_;
     std::chrono::milliseconds timeout_;
-    std::optional<std::uint64_t> trimmed_bytes_;
-    bool used_fallback_ = false;
+    TrimResult result_;
 };
 
 /// The byte count out of `fstrim -v` output, if there is one.

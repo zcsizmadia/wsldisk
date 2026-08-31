@@ -9,6 +9,7 @@
 #include <string>
 #include <vector>
 
+#include "compact_command.h"
 #include "errors.h"
 #include "info_command.h"
 #include "list_command.h"
@@ -58,6 +59,9 @@ int run(std::span<const std::string> args, std::ostream& out, std::ostream& err)
     TrimOptions trim_options;
     add_trim_command(app, options, trim_options);
 
+    CompactCommandOptions compact_options;
+    add_compact_command(app, options, compact_options);
+
     // CLI11 parses in reverse order, so hand it a reversed copy of argv-style input.
     std::vector<std::string> reversed(args.rbegin(), args.rend());
 
@@ -77,18 +81,25 @@ int run(std::span<const std::string> args, std::ostream& out, std::ostream& err)
     StreamLogger logger{err, options.verbose, options.log_file};
 
     if (app.got_subcommand("list") || app.got_subcommand("info") || app.got_subcommand("orphans") ||
-        app.got_subcommand("trim")) {
+        app.got_subcommand("trim") || app.got_subcommand("compact")) {
         // The real implementations. Every one is an interface, which is what
         // lets the unit tests drive the same code with fakes.
         platform::Win32Registry registry;
         platform::Win32FileSystem filesystem;
         const platform::Win32VirtualDisk disks;
         const platform::WslExeHost host;
-        const Services services{
-            .registry = &registry, .filesystem = &filesystem, .disks = &disks, .host = &host};
+        const platform::SystemClock clock;
+        const Services services{.registry = &registry,
+                                .filesystem = &filesystem,
+                                .disks = &disks,
+                                .host = &host,
+                                .clock = &clock};
 
         if (app.got_subcommand("info")) {
             return run_info(services, info_options, options, logger, out, err);
+        }
+        if (app.got_subcommand("compact")) {
+            return run_compact(services, compact_options, options, logger, out, err);
         }
         if (app.got_subcommand("trim")) {
             return run_trim(services, trim_options, options, logger, out, err);

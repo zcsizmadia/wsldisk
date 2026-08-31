@@ -95,24 +95,23 @@ Result<Plan> TrimOperation::plan() {
     return plan;
 }
 
-Result<Report> TrimOperation::execute(ProgressSink& progress) {
-    const StepPlan step{.description = std::format("run {} {} in {}", fstrim, root, distro_.name),
-                        .mutates = true};
-    progress.step_started(0, step);
+Result<TrimResult> run_fstrim(const IWslHost& host, const std::string& distro,
+                              std::chrono::milliseconds timeout, ProgressSink& progress) {
+    TrimResult trimmed;
 
     // `-v` first, because the byte count is the only thing fstrim says about
     // what it did. `-av` is never used: busybox rejects `-a` (spike #1).
     const std::vector<std::string> verbose{std::string{fstrim}, "-v", std::string{root}};
-    auto result = host_->run_as_root(distro_.name, verbose, timeout_);
+    auto result = host.run_as_root(distro, verbose, timeout);
     if (!result.has_value()) {
         return std::unexpected(result.error());
     }
 
     if (!result->succeeded() && rejected_an_option(result->standard_error)) {
         progress.message("fstrim does not take -v here; retrying without it");
-        used_fallback_ = true;
+        trimmed.used_fallback = true;
         const std::vector<std::string> plain{std::string{fstrim}, std::string{root}};
-        result = host_->run_as_root(distro_.name, plain, timeout_);
+        result = host.run_as_root(distro, plain, timeout);
         if (!result.has_value()) {
             return std::unexpected(result.error());
         }
@@ -124,12 +123,25 @@ Result<Report> TrimOperation::execute(ProgressSink& progress) {
         std::string detail =
             result->standard_error.empty() ? result->standard_output : result->standard_error;
         std::erase(detail, '\n');
-        return fail(ErrorCode::Generic, std::format("fstrim failed in {}: {}", distro_.name, detail),
-                    "check the distribution starts (`wsl -d " + distro_.name +
+        return fail(ErrorCode::Generic, std::format("fstrim failed in {}: {}", distro, detail),
+                    "check the distribution starts (`wsl -d " + distro +
                         " -- true`) and that /sbin/fstrim exists in it");
     }
 
-    trimmed_bytes_ = parse_trimmed_bytes(result->standard_output);
+    trimmed.trimmed_bytes = parse_trimmed_bytes(result->standard_output);
+    return trimmed;
+}
+
+Result<Report> TrimOperation::execute(ProgressSink& progress) {
+    const StepPlan step{.description = std::format("run {} {} in {}", fstrim, root, distro_.name),
+                        .mutates = true};
+    progress.step_started(0, step);
+
+    auto trimmed = run_fstrim(*host_, distro_.name, timeout_, progress);
+    if (!trimmed.has_value()) {
+        return std::unexpected(trimmed.error());
+    }
+    result_ = *trimmed;
     progress.step_finished(0, step);
 
     Report report;

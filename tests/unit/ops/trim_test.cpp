@@ -227,7 +227,8 @@ TEST_CASE("trim reports wsl.exe failing to answer the retry", "[ops][trim]") {
 
     REQUIRE_FALSE(outcome.has_value());
     CHECK(outcome.error().message == "wsl.exe did not answer");
-    CHECK(operation.used_fallback());
+    // Two calls, so the retry is what failed rather than the first attempt.
+    CHECK(host.commands().size() == 1);
 }
 
 TEST_CASE("trim runs nothing on a dry run", "[ops][trim]") {

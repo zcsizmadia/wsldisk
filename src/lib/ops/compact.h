@@ -1,0 +1,136 @@
+#pragma once
+
+#include <chrono>
+#include <cstdint>
+#include <filesystem>
+#include <optional>
+#include <string>
+#include <vector>
+
+#include "../interfaces.h"
+#include "../model/distro.h"
+#include "operation.h"
+
+namespace wsldisk::ops {
+
+/// How `compact` should go about it.
+struct CompactOptions {
+    /// Run `fstrim` first. Without it the compaction has nothing to reclaim on
+    /// a disk whose guest has not discarded its freed blocks -- which is the
+    /// usual state, since ext4 in WSL does not discard as it goes.
+    bool trim = true;
+
+    /// Permit `wsl --shutdown` when something else is holding the disk.
+    ///
+    /// Off by default, and that is decision D9 rather than caution for its own
+    /// sake: the utility VM keeps every attached disk open for as long as *any*
+    /// distribution runs, so the only way to release one disk is to stop them
+    /// all -- including whatever the user has running in another window, and
+    /// including Docker Desktop's containers. Stopping that silently to save
+    /// some disk space is not a trade this tool makes for the user.
+    bool shutdown = false;
+
+    /// Start the distribution again afterwards if it was running before.
+    bool restart = false;
+
+    /// How long to wait for the disk to be released after terminating.
+    ///
+    /// Short on purpose. Measurement says the handle is never released on a
+    /// timer -- it survived five minutes of polling -- so a long wait would only
+    /// delay a refusal the user has to act on anyway.
+    std::chrono::milliseconds unlock_timeout{std::chrono::seconds{5}};
+
+    /// How long to give the guest's `fstrim`.
+    std::chrono::milliseconds trim_timeout{std::chrono::minutes{10}};
+};
+
+/// Reclaims the space a VHDX is holding but no longer using.
+///
+/// `fstrim` in the guest, stop whatever has the disk open, then
+/// `CompactVirtualDisk` on the unattached file. That last step needs no
+/// administrator rights and reclaimed 100% of the freed space in the spike
+/// (D10), which is the result this whole project rests on.
+///
+/// Nothing here can be undone: a compaction rewrites the file. The lifecycle
+/// still earns its keep, because everything that *can* refuse does so in
+/// `plan()`, before any of it has run.
+class CompactOperation final : public IOperation {
+public:
+    /// Compacts a distribution's disk: trim, stop, compact.
+    CompactOperation(const IVirtualDisk& disks, const IFileSystem& filesystem, const IWslHost& host,
+                     const IClock& clock, model::Distro distro, CompactOptions options = {});
+
+    /// Compacts a loose VHDX that no distribution claims -- Docker Desktop's
+    /// data volume, or something `orphans` turned up.
+    ///
+    /// There is no guest to trim and nothing to terminate, so this is the
+    /// compaction alone. It still refuses a file something else has open.
+    CompactOperation(const IVirtualDisk& disks, const IFileSystem& filesystem, const IWslHost& host,
+                     const IClock& clock, std::filesystem::path path, CompactOptions options = {});
+
+    [[nodiscard]] Result<Plan> plan() override;
+    [[nodiscard]] Result<Report> execute(ProgressSink& progress) override;
+    [[nodiscard]] Status verify() override;
+    void rollback(ProgressSink& progress) noexcept override;
+
+    /// The disk this acts on.
+    [[nodiscard]] const std::filesystem::path& path() const noexcept { return path_; }
+
+    /// What the file occupied on the host volume before and after.
+    ///
+    /// The host-volume figure, not the VHDX's own `physical_size`: what the user
+    /// notices is what the drive says is free. Absent when it could not be
+    /// measured, which is not a reason to refuse to compact.
+    [[nodiscard]] const std::optional<std::uint64_t>& size_before() const noexcept { return before_; }
+
+    [[nodiscard]] const std::optional<std::uint64_t>& size_after() const noexcept { return after_; }
+
+    /// How much the file shrank. Absent unless both ends were measured; zero
+    /// when it did not shrink, which is a real and common answer.
+    [[nodiscard]] std::optional<std::uint64_t> reclaimed() const noexcept;
+
+    /// What `fstrim` reported, when it ran and said anything. Misleading on its
+    /// own -- see `trimmed_bytes_are_misleading` in trim.h.
+    [[nodiscard]] const std::optional<std::uint64_t>& trimmed_bytes() const noexcept {
+        return trimmed_bytes_;
+    }
+
+private:
+    /// The steps that only exist when there is a distribution: the trim and the
+    /// stop. Split out so the distribution is a reference rather than an
+    /// optional dereferenced in a dozen places.
+    void plan_guest_steps(const model::Distro& distro, Plan& plan);
+
+    /// Runs those steps, advancing `index` past the ones it reported.
+    [[nodiscard]] Status run_guest_steps(const model::Distro& distro, ProgressSink& progress, Report& report,
+                                         std::size_t& index);
+
+    /// Refuses a loose file that something else has open.
+    [[nodiscard]] Status require_free_file() const;
+
+    /// Starts the distribution again. Best effort: a failure here is reported
+    /// and does not fail the run, because the compaction already succeeded.
+    void restart_guest(const model::Distro& distro, ProgressSink& progress, Report& report,
+                       std::size_t index);
+
+    /// Stops whatever is holding the disk, or explains who is.
+    [[nodiscard]] Status release_disk(const model::Distro& distro, ProgressSink& progress);
+
+    /// The distributions keeping the utility VM alive.
+    [[nodiscard]] std::vector<std::string> others_running() const;
+
+    const IVirtualDisk* disks_;
+    const IFileSystem* filesystem_;
+    const IWslHost* host_;
+    const IClock* clock_;
+    /// Absent when compacting a loose file.
+    std::optional<model::Distro> distro_;
+    std::filesystem::path path_;
+    CompactOptions options_;
+    std::optional<std::uint64_t> before_;
+    std::optional<std::uint64_t> after_;
+    std::optional<std::uint64_t> trimmed_bytes_;
+    bool was_running_ = false;
+};
+
+}  // namespace wsldisk::ops

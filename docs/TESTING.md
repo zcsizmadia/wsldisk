@@ -39,10 +39,11 @@ untested code is not shipped.
 ## Integration test scenarios (must all exist before the corresponding command ships)
 
 - `list` shows the test distro with correct path, version, virtual and actual sizes; `--json` schema validates.
-- `compact`: write 2 GB of random data in the guest, delete it, `compact`, assert actual size drops ≥ 1.5 GB; distro still boots; file checksums of remaining files unchanged.
-- `compact --dry-run` changes nothing (hash VHDX before/after).
+- `compact`: write 512 MiB of random data in the guest **with `conv=fsync`**, delete it, `compact`, assert the file shrank by at least half of what was written; distro still boots. The `fsync` is not decoration — without it `dd` returns as soon as the guest page cache has the data, the `rm` drops it before the kernel writes it out, and the `.vhdx` never grows: measured 33 MiB of growth without it against 1.1 GiB with it. 512 MiB rather than the 2 GB this originally said, because the floor only has to be big enough to be unambiguous.
+- The same case turns sparse mode off first (`wsl --manage <d> --set-sparse false`). A sparse disk returns its space by itself, which is a different scenario; the test skips rather than fails if the disk turns out to have reclaimed on its own, because there is then nothing for a compaction to do.
+- `compact` refuses rather than stopping WSL on its own (D9): a second distribution left running holds the disk, and the refusal names it and points at `--shutdown`.
+- `compact --dry-run` changes nothing (file size before/after).
 - `trim`: exits 0 against the fixture distro and leaves it running — it is the one reclaim step that must not shut anything down, which is what makes it safe to schedule. The fixture is busybox, so this is also what proves which `fstrim` option spellings a real guest takes.
-- `compact` against a running distro that refuses to terminate → exit code 11, nothing changed.
 - `grow --to`: guest `df` shows new size; `shrink --to`: refuses when data doesn't fit; succeeds otherwise; `e2fsck -n` clean.
 - `move` to another directory and to a VHD-backed second volume (created in CI with `New-VHD`/`diskpart`-free API); default user, GUID, flags preserved; source removed only after boot verification; simulated failure mid-copy → rollback leaves original intact and registry unchanged.
 - `relink` to a wrong path → distro fails to start → rollback.
@@ -55,6 +56,7 @@ untested code is not shipped.
 - One test file per source file, mirrored path (`src/lib/ops/compact_op.cpp` → `tests/unit/ops/compact_op_test.cpp`).
 - Test names read as behaviour: `SCENARIO("compact refuses a running distro")`.
 - No sleeping; use `FakeClock`. No real filesystem or registry in unit tests.
+- `cli::run()` is the one exception, and a dangerous one: it constructs the real registry, filesystem and `wsl.exe` wrapper. A unit test may only hand it flags and `wsldisk-` prefixed placeholder names. `app_test.cpp` once asserted `{"compact", "Ubuntu"}` was an unknown subcommand; when `compact` shipped, that case started running `fstrim` inside the developer's real Ubuntu. `scripts/tests/test_repo_conventions.py` now fails the lint job if any positional there is not a placeholder.
 - Golden files for table and `--json` output under `tests/unit/golden/`, updated only with `--update-golden` and reviewed in the diff.
 
 ## Definition of done for any change

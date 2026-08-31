@@ -143,6 +143,17 @@ bool TempDistro::release_disk() const {
     return false;
 }
 
+bool TempDistro::set_sparse(bool sparse) const {
+    // Changing it needs the disk free, and terminating alone does not do that:
+    // the utility VM holds every attached disk while any distribution runs
+    // (D9). `release_disk` is the thing that actually gets it back.
+    if (!release_disk()) {
+        return false;
+    }
+    const ProcessResult result = run_wsl({"--manage", name_, "--set-sparse", sparse ? "true" : "false"});
+    return result.exit_code == 0;
+}
+
 void TempDistro::also_remove(std::filesystem::path path) {
     extra_.push_back(std::move(path));
 }
