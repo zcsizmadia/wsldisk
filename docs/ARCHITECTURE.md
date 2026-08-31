@@ -6,35 +6,60 @@
 wsldisk/
 ├── CMakeLists.txt, CMakePresets.json, vcpkg.json
 ├── src/
-│   ├── lib/                     # libwsldisk (static library, no console I/O)
-│   │   ├── platform/            # thin RAII wrappers over Win32/COM (WIL-based)
-│   │   │   ├── virtual_disk.{h,cpp}   # OpenVirtualDisk/Compact/Resize/Attach/Detach/Create
-│   │   │   ├── registry.{h,cpp}       # HKCU\...\Lxss access
-│   │   │   ├── wsl_host.{h,cpp}       # wsl.exe process wrapper (+ WSL COM later)
-│   │   │   ├── filesystem.{h,cpp}     # sizes, sparse ranges, CopyFileEx, volume info
-│   │   │   ├── elevation.{h,cpp}      # IsElevated, RelaunchElevated, pipe IPC
-│   │   │   └── task_scheduler.{h,cpp}
-│   │   ├── model/               # plain data: Distro, DiskInfo, Snapshot, Plan, Result
-│   │   ├── ops/                 # one class per operation, depends only on interfaces
-│   │   │   ├── operation.h            # Plan → Execute(ProgressSink&) → Verify → Result
-│   │   │   ├── list_op.cpp
-│   │   │   ├── compact_op.cpp
-│   │   │   ├── resize_op.cpp          # grow + shrink
-│   │   │   ├── move_op.cpp
-│   │   │   ├── snapshot_op.cpp / restore_op.cpp
-│   │   │   └── doctor_op.cpp
-│   │   ├── interfaces.h         # IVirtualDisk, IWslHost, IRegistry, IFileSystem, IClock
-│   │   └── errors.h             # error codes → exit codes, std::expected aliases
-│   └── cli/                     # wsldisk.exe: CLI11 commands, table/JSON renderers, progress bars
+│   ├── lib/                        # libwsldisk (static, no console I/O)
+│   │   ├── interfaces.h            # IRegistry, IVirtualDisk, IWslHost, IFileSystem, IClock
+│   │   ├── errors.{h,cpp}          # ErrorCode → exit code, Result/Status aliases
+│   │   ├── platform/               # the only code that touches Win32
+│   │   │   ├── win32_api.{h,cpp}   # the fault-injection table everything below calls through
+│   │   │   ├── win32_error.{h,cpp} # DWORD → Error, with a remedy
+│   │   │   ├── scoped_handle.h     # RAII for HANDLE, checks null *and* INVALID_HANDLE_VALUE
+│   │   │   ├── registry.{h,cpp}    # HKCU\...\Lxss
+│   │   │   ├── virtual_disk.{h,cpp}# OpenVirtualDisk V2 + CompactVirtualDisk
+│   │   │   ├── filesystem.{h,cpp}  # sizes, sparse ranges, scans, text files, is_locked
+│   │   │   ├── wsl_host.{h,cpp}    # wsl.exe process wrapper
+│   │   │   ├── editor.{h,cpp}      # %EDITOR% for `config edit`
+│   │   │   └── clock.{h,cpp}
+│   │   ├── model/                  # plain data and parsers; no Win32, no I/O
+│   │   │   ├── distro.{h,cpp}      # Distro, DistroList, registry enumeration
+│   │   │   ├── disk_info.{h,cpp}   # measurement, `df` parsing
+│   │   │   ├── orphans.{h,cpp}     # canonical paths, scan patterns, find_orphans
+│   │   │   ├── config.{h,cpp}      # config.toml and .wslconfig
+│   │   │   ├── size.{h,cpp}        # parse_size / format_size
+│   │   │   ├── text.{h,cpp}        # UTF-8 ↔ UTF-16
+│   │   │   └── wsl_output.{h,cpp}  # decoding what wsl.exe prints
+│   │   └── ops/                    # one class per operation, interfaces only
+│   │       ├── operation.h         # IOperation, Plan, Report, ProgressSink, UndoStack
+│   │       ├── runner.{h,cpp}      # plan → execute → verify → rollback
+│   │       ├── trim.{h,cpp}
+│   │       ├── compact.{h,cpp}
+│   │       └── relink.{h,cpp}
+│   └── cli/                        # wsldisk.exe
+│       ├── main.cpp, app.{h,cpp}   # argv → run(), and the top-level handler
+│       ├── commands.{h,cpp}        # the whole CLI11 tree, built in one place
+│       ├── *_command.{h,cpp}       # one pair per subcommand
+│       ├── render.{h,cpp}          # Table, Details, JSON lines
+│       ├── progress.{h,cpp}        # ConsoleSink
+│       ├── lookup.{h,cpp}          # find a distribution by name, with "did you mean"
+│       ├── preflight.{h,cpp}       # the shared WSL1 refusal
+│       ├── options.{h,cpp}         # the flags every command shares
+│       └── logger.{h,cpp}
 ├── tests/
-│   ├── unit/                    # Catch2 + fakes/ (FakeRegistry, FakeVirtualDisk, ...)
-│   ├── integration/             # requires WSL; gated by WSLDISK_INTEGRATION=1
-│   └── fixtures/                # tiny Alpine rootfs tarball (or download script)
-├── spikes/                      # M0 throwaway experiments (deleted or archived after M0)
+│   ├── fakes/                      # FakeRegistry, FakeVirtualDisk, FakeWslHost,
+│   │                               # FakeFileSystem, FakeClock, lxss_hives.h
+│   ├── unit/                       # Catch2; mirrors src/ path for path
+│   │   └── golden/                 # byte-compared output, incl. completion scripts
+│   ├── contract/                   # the same wrappers against real Win32
+│   ├── integration/                # real WSL2; ScratchDistro; WSLDISK_INTEGRATION=1
+│   ├── fuzz/                       # libFuzzer targets + seed corpora
+│   └── fixtures/                   # pinned Alpine rootfs manifest
+├── scripts/                        # dev-shell, lint, coverage gate, fixtures
 ├── docs/
-├── packaging/                   # winget, scoop manifests; release scripts
 └── .github/workflows/
 ```
+
+`commands.cpp` is worth singling out. It builds the entire CLI11 tree, and both
+`run()` and `wsldisk completion` call it -- so the generated completion scripts
+describe the flags that exist rather than a copy of them that can drift.
 
 ## Dependency rule
 
@@ -49,16 +74,25 @@ struct Plan     { std::vector<StepPlan> steps; Estimate estimate; std::vector<Wa
 
 class IOperation {
 public:
-    virtual std::expected<Plan, Error>   plan()                          = 0;  // preflight, read-only
-    virtual std::expected<Result, Error> execute(ProgressSink&)          = 0;  // runs steps, pushes undo
-    virtual std::expected<void, Error>   verify()                        = 0;
-    virtual void                         rollback(ProgressSink&) noexcept = 0; // best effort, LIFO undo
+    virtual Result<Plan>   plan()                           = 0;  // preflight, read-only
+    virtual Result<Report> execute(ProgressSink&)           = 0;  // runs steps, pushes undo
+    virtual Status         verify()                         = 0;
+    virtual void           rollback(ProgressSink&) noexcept = 0;  // best effort, LIFO undo
 };
 ```
 
-`--dry-run` calls `plan()` and renders it. `execute()` wraps each mutating step so that a failure
-triggers `rollback()` automatically (registry write undo, file move undo). Steps that cannot be
-undone (compaction, resize2fs shrink) are ordered last and preceded by a verify checkpoint.
+`ops::run(operation, sink, options)` drives the lifecycle; an operation never
+calls its own `rollback`. `--dry-run` stops after `plan()` and renders it. A
+failure in `execute()` unwinds the undo stack.
+
+A **verify** failure deliberately does *not* roll back. Execution reported
+success, so the undo entries describe changes made on purpose; what failed is
+the check that they added up to the intended result. Undoing on that signal
+would turn "the tool is unsure" into "the tool changed your disk again".
+
+`irreversible_steps_are_last(plan)` exists so an operation can assert its own
+ordering in a test: once a point of no return has passed, a rollback can no
+longer restore the starting state.
 
 ## Key workflows
 
@@ -110,7 +144,20 @@ preflight(fs, space, lock) ──► terminate ──► sparse-aware copy(+prog
 
 ## Error handling
 
-`platform/` throws `wil::ResultException` on unexpected Win32 failures and returns
-`std::expected` for expected conditions (not found, locked, access denied). `ops/` convert
-everything into `Error{code, message, remedy}`; the CLI maps `code` to exit codes (see PLAN §4.8)
+**Nothing in `src/` throws.** Every fallible call returns `Result<T>`
+(`std::expected<T, Error>`) or `Status` (`std::expected<void, Error>`), and
+`platform/` converts each Win32 failure into `Error{code, message, remedy}` at
+the point where it still knows what was being attempted -- which is the only
+place that can write a useful remedy.
+
+`main_entry` is `noexcept` and catches anything the standard library might throw
+(a broken stream, an allocation failure), because an exception escaping `main`
+surfaces as a crash dialog rather than a message.
+
+`Error::remedy` may be empty only when no action helps. `error_from_win32`
+leaves it empty for a code it does not map, so call sites that know more --
+"run wsl.exe" knows the machine may have no WSL -- fill it in.
+
+The CLI maps `code` to the process exit code; the table is in
+[JSON.md](JSON.md#exit-codes) and is part of the interface.
 and prints `remedy` — every error should tell the user what to do next.
