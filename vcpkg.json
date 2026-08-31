@@ -9,10 +9,8 @@
   "supports": "windows & (x64 | arm64)",
   "dependencies": [
     "cli11",
-    "fmt",
     "nlohmann-json",
-    "tomlplusplus",
-    "wil"
+    "tomlplusplus"
   ],
   "features": {
     "tests": {
