@@ -240,7 +240,18 @@ jobs:
       - name: Combine the checksums
         working-directory: artifacts
         run: |
-          cat SHA256SUMS-* > SHA256SUMS
+          # `tr -d '\r'` is the whole point of this line. The per-architecture
+          # files are written by PowerShell on Windows runners, so they arrive
+          # with CRLF, and a SHA256SUMS with CRLF cannot be verified on Linux:
+          #
+          #   sha256sum: 'wsldisk-v0.1.0-rc.2-x64.zip'$'\r': No such file
+          #
+          # The carriage return becomes part of the filename. The release notes
+          # tell people to run exactly that command, so publishing it this way
+          # hands them a verification step that cannot pass. It also broke the
+          # manifest substitution below, whose `$`-anchored patterns never
+          # matched -- which is how it was noticed.
+          cat SHA256SUMS-* | tr -d '\r' > SHA256SUMS
           rm SHA256SUMS-*
           cat SHA256SUMS
 
