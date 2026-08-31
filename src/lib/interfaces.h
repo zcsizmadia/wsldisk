@@ -294,6 +294,25 @@ public:
     /// Expands `%VAR%` references, for the default scan directories and config.
     [[nodiscard]] virtual Result<std::filesystem::path> expand_environment(
         const std::filesystem::path& path) const = 0;
+
+    /// Reads a whole text file as bytes.
+    ///
+    /// For `config.toml` and `.wslconfig`, both of which are small and both of
+    /// which are parsed rather than streamed. The bytes come back untouched --
+    /// no encoding is assumed here, because a config file the user hand-edited
+    /// can be anything, and the parser is where that gets decided.
+    [[nodiscard]] virtual Result<std::string> read_text_file(const std::filesystem::path& path) const = 0;
+
+    /// Writes a whole text file, replacing whatever was there.
+    ///
+    /// Only ever called with the output of a serialiser, never with a
+    /// hand-assembled string: `config set` round-trips through the parser so a
+    /// malformed edit cannot be written back.
+    [[nodiscard]] virtual Status write_text_file(const std::filesystem::path& path,
+                                                 std::string_view contents) = 0;
+
+    /// Creates a directory and its parents. Succeeds if it already exists.
+    [[nodiscard]] virtual Status create_directories(const std::filesystem::path& path) = 0;
 };
 
 }  // namespace wsldisk

@@ -99,6 +99,9 @@ struct Win32Api {
     std::function<BOOL(HANDLE object, DWORD mask, DWORD flags)> set_handle_information;
     std::function<BOOL(HANDLE file, LPVOID buffer, DWORD to_read, LPDWORD read, LPOVERLAPPED overlapped)>
         read_file;
+    std::function<BOOL(HANDLE file, LPCVOID buffer, DWORD to_write, LPDWORD written, LPOVERLAPPED overlapped)>
+        write_file;
+    std::function<BOOL(LPCWSTR path, LPSECURITY_ATTRIBUTES attributes)> create_directory;
     std::function<BOOL(HANDLE pipe, LPVOID buffer, DWORD buffer_size, LPDWORD read, LPDWORD total_available,
                        LPDWORD left_this_message)>
         peek_named_pipe;

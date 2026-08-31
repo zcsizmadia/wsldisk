@@ -8,6 +8,7 @@
 #include <array>
 #include <cstddef>
 #include <format>
+#include <ranges>
 #include <span>
 #include <string>
 #include <string_view>
@@ -288,5 +289,85 @@ Result<std::filesystem::path> Win32FileSystem::expand_environment(const std::fil
     // The count includes the terminator, which does not belong in the path.
     expanded.resize(written - 1);
     return std::filesystem::path{expanded};
+}
+
+Result<std::string> Win32FileSystem::read_text_file(const std::filesystem::path& path) const {
+    const ScopedHandle file{win32().create_file(path.c_str(), GENERIC_READ, FILE_SHARE_READ, nullptr,
+                                                OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr)};
+    if (file.get() == INVALID_HANDLE_VALUE) {
+        return std::unexpected(
+            error_from_win32(win32().get_last_error(), std::format("open {}", path.string())));
+    }
+
+    std::string contents;
+    std::array<char, 4096> buffer{};
+    while (true) {  // LCOV_EXCL_BR_LINE -- every exit is a return or a break
+        DWORD read = 0;
+        if (win32().read_file(file.get(), buffer.data(), static_cast<DWORD>(buffer.size()), &read, nullptr) ==
+            FALSE) {
+            return std::unexpected(
+                error_from_win32(win32().get_last_error(), std::format("read {}", path.string())));
+        }
+        if (read == 0) {
+            break;
+        }
+        contents.append(buffer.data(), read);
+    }
+    return contents;
+}
+
+Status Win32FileSystem::write_text_file(const std::filesystem::path& path, std::string_view contents) {
+    // CREATE_ALWAYS rather than TRUNCATE_EXISTING: writing a config for the
+    // first time is the ordinary case, not an error.
+    const ScopedHandle file{win32().create_file(path.c_str(), GENERIC_WRITE, 0, nullptr, CREATE_ALWAYS,
+                                                FILE_ATTRIBUTE_NORMAL, nullptr)};
+    if (file.get() == INVALID_HANDLE_VALUE) {
+        return std::unexpected(
+            error_from_win32(win32().get_last_error(), std::format("create {}", path.string())));
+    }
+
+    // One call: these files are a few hundred bytes, and a partial write would
+    // leave a config that parses to something the user did not ask for.
+    DWORD written = 0;
+    if (win32().write_file(file.get(), contents.data(), static_cast<DWORD>(contents.size()), &written,
+                           nullptr) == FALSE) {
+        return std::unexpected(
+            error_from_win32(win32().get_last_error(), std::format("write {}", path.string())));
+    }
+    if (written != contents.size()) {
+        return fail(ErrorCode::Partial, std::format("{} was only partly written", path.string()),
+                    "check there is free space on the volume and try again");
+    }
+    return {};
+}
+
+Status Win32FileSystem::create_directories(const std::filesystem::path& path) {
+    // Walked into a list rather than recursed: the depth is bounded by the path,
+    // but a reader has to prove that either way, and an explicit list says it.
+    //
+    // The drive root is never in the list. It exists by definition, and
+    // `CreateDirectoryW("C:\\")` fails with ERROR_ACCESS_DENIED rather than
+    // ERROR_ALREADY_EXISTS -- which would look like a real failure and sink
+    // every call that reached it.
+    std::vector<std::filesystem::path> levels;
+    for (std::filesystem::path level = path; !level.empty() && level != level.root_path();
+         level = level.parent_path()) {
+        levels.push_back(level);
+        if (!level.has_parent_path()) {
+            break;
+        }
+    }
+
+    // Parents first, so a config directory two levels below %APPDATA% works.
+    for (const std::filesystem::path& level : std::views::reverse(levels)) {
+        if (win32().create_directory(level.c_str(), nullptr) != FALSE) {
+            continue;
+        }
+        // Already there is the ordinary case, not a failure: this is `mkdir -p`.
+        if (const DWORD status = win32().get_last_error(); status != ERROR_ALREADY_EXISTS) {
+            return std::unexpected(error_from_win32(status, std::format("create {}", level.string())));
+        }
+    }
+    return {};
 }
 }  // namespace wsldisk::platform

@@ -147,6 +147,14 @@ const Win32Api& real_win32_api() {
             [](HANDLE file, LPVOID buffer, DWORD to_read, LPDWORD read, LPOVERLAPPED overlapped) {
                 return ::ReadFile(file, buffer, to_read, read, overlapped);
             },
+        .write_file =
+            [](HANDLE file, LPCVOID buffer, DWORD to_write, LPDWORD written, LPOVERLAPPED overlapped) {
+                return ::WriteFile(file, buffer, to_write, written, overlapped);
+            },
+        .create_directory =
+            [](LPCWSTR path, LPSECURITY_ATTRIBUTES attributes) {
+                return ::CreateDirectoryW(path, attributes);
+            },
         .peek_named_pipe =
             [](HANDLE pipe, LPVOID buffer, DWORD buffer_size, LPDWORD read, LPDWORD total_available,
                LPDWORD left_this_message) {

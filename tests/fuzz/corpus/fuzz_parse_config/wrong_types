@@ -1,0 +1,5 @@
+[scan]
+dirs = "not an array"
+
+[compact]
+trim = 7

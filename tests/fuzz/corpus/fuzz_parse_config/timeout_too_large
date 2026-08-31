@@ -1,0 +1,2 @@
+[wsl]
+unlock_timeout_seconds = 86400

@@ -3,6 +3,7 @@
 #include <CLI/CLI.hpp>
 
 #include <exception>
+#include <functional>
 #include <iostream>
 #include <ostream>
 #include <span>
@@ -10,6 +11,7 @@
 #include <vector>
 
 #include "compact_command.h"
+#include "config_command.h"
 #include "errors.h"
 #include "info_command.h"
 #include "list_command.h"
@@ -62,6 +64,9 @@ int run(std::span<const std::string> args, std::ostream& out, std::ostream& err)
     CompactCommandOptions compact_options;
     add_compact_command(app, options, compact_options);
 
+    ConfigOptions config_options;
+    add_config_command(app, options, config_options);
+
     // CLI11 parses in reverse order, so hand it a reversed copy of argv-style input.
     std::vector<std::string> reversed(args.rbegin(), args.rend());
 
@@ -81,7 +86,7 @@ int run(std::span<const std::string> args, std::ostream& out, std::ostream& err)
     StreamLogger logger{err, options.verbose, options.log_file};
 
     if (app.got_subcommand("list") || app.got_subcommand("info") || app.got_subcommand("orphans") ||
-        app.got_subcommand("trim") || app.got_subcommand("compact")) {
+        app.got_subcommand("trim") || app.got_subcommand("compact") || app.got_subcommand("config")) {
         // The real implementations. Every one is an interface, which is what
         // lets the unit tests drive the same code with fakes.
         platform::Win32Registry registry;
@@ -97,6 +102,12 @@ int run(std::span<const std::string> args, std::ostream& out, std::ostream& err)
 
         if (app.got_subcommand("info")) {
             return run_info(services, info_options, options, logger, out, err);
+        }
+        if (app.got_subcommand("config")) {
+            // `bind_front` rather than a lambda: a lambda here would be a
+            // function body no test can reach without launching a real editor.
+            const LaunchEditor launch = std::bind_front(&open_in_editor, std::cref(filesystem));
+            return run_config(services, config_options, options, logger, launch, out, err);
         }
         if (app.got_subcommand("compact")) {
             return run_compact(services, compact_options, options, logger, out, err);

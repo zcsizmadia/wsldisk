@@ -1,0 +1,6 @@
+# comment
+[wsl2]
+memory = 8GB
+defaultVhdSize = 256GB
+vhdSize = 1TB
+swapFile = D:\swap.vhdx

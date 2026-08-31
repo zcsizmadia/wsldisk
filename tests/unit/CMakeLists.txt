@@ -3,6 +3,7 @@ wsldisk_add_test_suite(wsldisk_unit_tests unit
     errors_test.cpp
     version_test.cpp
     fakes/fake_registry_test.cpp
+    model/config_test.cpp
     model/disk_info_test.cpp
     model/distro_test.cpp
     model/orphans_test.cpp
@@ -14,6 +15,7 @@ wsldisk_add_test_suite(wsldisk_unit_tests unit
     ops/runner_test.cpp
     ops/trim_test.cpp
     platform/clock_test.cpp
+    platform/editor_test.cpp
     platform/filesystem_scan_test.cpp
     platform/filesystem_test.cpp
     platform/registry_test.cpp
@@ -22,6 +24,7 @@ wsldisk_add_test_suite(wsldisk_unit_tests unit
     platform/wsl_host_test.cpp
     cli/app_test.cpp
     cli/compact_command_test.cpp
+    cli/config_command_test.cpp
     cli/info_command_test.cpp
     cli/list_command_test.cpp
     cli/lookup_test.cpp

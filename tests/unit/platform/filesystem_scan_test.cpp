@@ -504,3 +504,215 @@ TEST_CASE("is_locked reports a failure that is not an answer", "[platform][fs]")
     REQUIRE_FALSE(locked.has_value());
     CHECK(locked.error().message.find("is in use") != std::string::npos);
 }
+
+namespace {
+
+/// A table where a file opens, reads back `chunks` in order, then reports
+/// end-of-file.
+Win32Api reads_back(std::vector<std::string> chunks) {
+    Win32Api api;
+    api.create_file = [](LPCWSTR, DWORD, DWORD, LPSECURITY_ATTRIBUTES, DWORD, DWORD, HANDLE) -> HANDLE {
+        return file_handle;
+    };
+    api.close_handle = [](HANDLE) -> BOOL { return TRUE; };
+    api.read_file = [chunks = std::move(chunks), index = std::size_t{0}](
+                        HANDLE, LPVOID buffer, DWORD to_read, LPDWORD read, LPOVERLAPPED) mutable -> BOOL {
+        if (index >= chunks.size()) {
+            *read = 0;
+            return TRUE;
+        }
+        const std::string& chunk = chunks[index++];
+        REQUIRE(chunk.size() <= to_read);
+        std::memcpy(buffer, chunk.data(), chunk.size());
+        *read = static_cast<DWORD>(chunk.size());
+        return TRUE;
+    };
+    return api;
+}
+
+}  // namespace
+
+TEST_CASE("read_text_file joins every read into one string", "[platform][fs]") {
+    // The loop runs until ReadFile reports zero, so a file that arrives in more
+    // than one read is the case worth pinning.
+    const ScopedWin32Api scoped{reads_back({"[compact]\n", "trim = false\n"})};
+
+    const Win32FileSystem fs;
+    const auto contents = fs.read_text_file(R"(C:\config.toml)");
+
+    REQUIRE(contents.has_value());
+    CHECK(*contents == "[compact]\ntrim = false\n");
+}
+
+TEST_CASE("read_text_file reports a file it cannot open", "[platform][fs]") {
+    Win32Api api;
+    api.create_file = [](LPCWSTR, DWORD, DWORD, LPSECURITY_ATTRIBUTES, DWORD, DWORD, HANDLE) -> HANDLE {
+        return INVALID_HANDLE_VALUE;
+    };
+    api.get_last_error = []() -> DWORD { return ERROR_FILE_NOT_FOUND; };
+    const ScopedWin32Api scoped{api};
+
+    const Win32FileSystem fs;
+    const auto contents = fs.read_text_file(R"(C:\gone.toml)");
+
+    REQUIRE_FALSE(contents.has_value());
+    CHECK(contents.error().message.find("open") != std::string::npos);
+}
+
+TEST_CASE("read_text_file reports a read that failed", "[platform][fs]") {
+    Win32Api api = reads_back({});
+    api.read_file = [](HANDLE, LPVOID, DWORD, LPDWORD, LPOVERLAPPED) -> BOOL { return FALSE; };
+    api.get_last_error = []() -> DWORD { return ERROR_ACCESS_DENIED; };
+    const ScopedWin32Api scoped{api};
+
+    const Win32FileSystem fs;
+    const auto contents = fs.read_text_file(R"(C:\config.toml)");
+
+    REQUIRE_FALSE(contents.has_value());
+    CHECK(contents.error().message.find("read") != std::string::npos);
+}
+
+TEST_CASE("write_text_file writes the whole thing", "[platform][fs]") {
+    std::string written;
+    Win32Api api;
+    api.create_file = [](LPCWSTR, DWORD, DWORD, LPSECURITY_ATTRIBUTES, DWORD, DWORD, HANDLE) -> HANDLE {
+        return file_handle;
+    };
+    api.close_handle = [](HANDLE) -> BOOL { return TRUE; };
+    api.write_file = [&written](HANDLE, LPCVOID buffer, DWORD to_write, LPDWORD count, LPOVERLAPPED) -> BOOL {
+        written.assign(static_cast<const char*>(buffer), to_write);
+        *count = to_write;
+        return TRUE;
+    };
+    const ScopedWin32Api scoped{api};
+
+    Win32FileSystem fs;
+    REQUIRE(fs.write_text_file(R"(C:\config.toml)", "trim = false\n").has_value());
+    CHECK(written == "trim = false\n");
+}
+
+TEST_CASE("write_text_file reports a file it cannot create", "[platform][fs]") {
+    Win32Api api;
+    api.create_file = [](LPCWSTR, DWORD, DWORD, LPSECURITY_ATTRIBUTES, DWORD, DWORD, HANDLE) -> HANDLE {
+        return INVALID_HANDLE_VALUE;
+    };
+    api.get_last_error = []() -> DWORD { return ERROR_ACCESS_DENIED; };
+    const ScopedWin32Api scoped{api};
+
+    Win32FileSystem fs;
+    const auto status = fs.write_text_file(R"(C:\config.toml)", "x");
+
+    REQUIRE_FALSE(status.has_value());
+    CHECK(status.error().message.find("create") != std::string::npos);
+}
+
+TEST_CASE("write_text_file reports a write that failed", "[platform][fs]") {
+    Win32Api api;
+    api.create_file = [](LPCWSTR, DWORD, DWORD, LPSECURITY_ATTRIBUTES, DWORD, DWORD, HANDLE) -> HANDLE {
+        return file_handle;
+    };
+    api.close_handle = [](HANDLE) -> BOOL { return TRUE; };
+    api.write_file = [](HANDLE, LPCVOID, DWORD, LPDWORD, LPOVERLAPPED) -> BOOL { return FALSE; };
+    api.get_last_error = []() -> DWORD { return ERROR_DISK_FULL; };
+    const ScopedWin32Api scoped{api};
+
+    Win32FileSystem fs;
+    const auto status = fs.write_text_file(R"(C:\config.toml)", "x");
+
+    REQUIRE_FALSE(status.has_value());
+    CHECK(status.error().message.find("write") != std::string::npos);
+}
+
+TEST_CASE("write_text_file refuses to call a partial write a success", "[platform][fs]") {
+    // A config half-written parses to something the user did not ask for, which
+    // is worse than not writing it at all.
+    Win32Api api;
+    api.create_file = [](LPCWSTR, DWORD, DWORD, LPSECURITY_ATTRIBUTES, DWORD, DWORD, HANDLE) -> HANDLE {
+        return file_handle;
+    };
+    api.close_handle = [](HANDLE) -> BOOL { return TRUE; };
+    api.write_file = [](HANDLE, LPCVOID, DWORD to_write, LPDWORD count, LPOVERLAPPED) -> BOOL {
+        *count = to_write / 2;
+        return TRUE;
+    };
+    const ScopedWin32Api scoped{api};
+
+    Win32FileSystem fs;
+    const auto status = fs.write_text_file(R"(C:\config.toml)", "trim = false\n");
+
+    REQUIRE_FALSE(status.has_value());
+    CHECK(status.error().code == ErrorCode::Partial);
+    CHECK(status.error().message.find("partly written") != std::string::npos);
+}
+
+TEST_CASE("create_directories makes each level in turn", "[platform][fs]") {
+    std::vector<std::wstring> created;
+    Win32Api api;
+    api.create_directory = [&created](LPCWSTR path, LPSECURITY_ATTRIBUTES) -> BOOL {
+        created.emplace_back(path);
+        return TRUE;
+    };
+    const ScopedWin32Api scoped{api};
+
+    Win32FileSystem fs;
+    REQUIRE(fs.create_directories(R"(C:\one\two\three)").has_value());
+
+    // The drive root is never attempted: CreateDirectoryW on `C:\` fails with
+    // access denied, which would sink the whole call.
+    CHECK(created == std::vector<std::wstring>{LR"(C:\one)", LR"(C:\one\two)", LR"(C:\one\two\three)"});
+}
+
+TEST_CASE("create_directories is happy with one that is already there", "[platform][fs]") {
+    Win32Api api;
+    api.create_directory = [](LPCWSTR, LPSECURITY_ATTRIBUTES) -> BOOL { return FALSE; };
+    api.get_last_error = []() -> DWORD { return ERROR_ALREADY_EXISTS; };
+    const ScopedWin32Api scoped{api};
+
+    Win32FileSystem fs;
+    CHECK(fs.create_directories(R"(C:\one)").has_value());
+}
+
+TEST_CASE("create_directories reports a level it cannot make", "[platform][fs]") {
+    Win32Api api;
+    api.create_directory = [](LPCWSTR, LPSECURITY_ATTRIBUTES) -> BOOL { return FALSE; };
+    api.get_last_error = []() -> DWORD { return ERROR_ACCESS_DENIED; };
+    const ScopedWin32Api scoped{api};
+
+    Win32FileSystem fs;
+    const auto status = fs.create_directories(R"(C:\one\two)");
+
+    REQUIRE_FALSE(status.has_value());
+    CHECK(status.error().message.find("create") != std::string::npos);
+}
+
+TEST_CASE("create_directories has nothing to do for a root or an empty path", "[platform][fs]") {
+    int calls = 0;
+    Win32Api api;
+    api.create_directory = [&calls](LPCWSTR, LPSECURITY_ATTRIBUTES) -> BOOL {
+        ++calls;
+        return TRUE;
+    };
+    const ScopedWin32Api scoped{api};
+
+    Win32FileSystem fs;
+    CHECK(fs.create_directories(R"(C:\)").has_value());
+    CHECK(fs.create_directories("").has_value());
+    CHECK(calls == 0);
+}
+
+TEST_CASE("create_directories handles a name with no parent at all", "[platform][fs]") {
+    // A bare relative name. Nothing in the tool passes one -- every config path
+    // is absolute -- but the recursion has to terminate on it rather than ask
+    // for the parent of something that has none.
+    std::vector<std::wstring> created;
+    Win32Api api;
+    api.create_directory = [&created](LPCWSTR path, LPSECURITY_ATTRIBUTES) -> BOOL {
+        created.emplace_back(path);
+        return TRUE;
+    };
+    const ScopedWin32Api scoped{api};
+
+    Win32FileSystem fs;
+    REQUIRE(fs.create_directories("one").has_value());
+    CHECK(created == std::vector<std::wstring>{L"one"});
+}

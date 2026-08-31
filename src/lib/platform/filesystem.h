@@ -23,6 +23,10 @@ public:
     [[nodiscard]] Status remove(const std::filesystem::path& path) override;
     [[nodiscard]] Result<std::filesystem::path> expand_environment(
         const std::filesystem::path& path) const override;
+    [[nodiscard]] Result<std::string> read_text_file(const std::filesystem::path& path) const override;
+    [[nodiscard]] Status write_text_file(const std::filesystem::path& path,
+                                         std::string_view contents) override;
+    [[nodiscard]] Status create_directories(const std::filesystem::path& path) override;
 };
 
 }  // namespace wsldisk::platform

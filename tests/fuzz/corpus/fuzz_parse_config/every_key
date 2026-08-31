@@ -1,0 +1,9 @@
+[scan]
+dirs = ["D:\WSL", "E:\disks"]
+
+[compact]
+trim = false
+restart = true
+
+[wsl]
+unlock_timeout_seconds = 30

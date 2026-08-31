@@ -8,6 +8,8 @@ add_library(wsldisk_cli_lib STATIC
     app.h
     compact_command.cpp
     compact_command.h
+    config_command.cpp
+    config_command.h
     info_command.cpp
     info_command.h
     list_command.cpp

@@ -5,6 +5,7 @@
 #include <optional>
 #include <string>
 #include <string_view>
+#include <utility>
 #include <vector>
 
 #include "errors.h"
@@ -44,6 +45,27 @@ public:
 private:
     std::vector<std::string> headers_;
     std::vector<std::vector<Cell>> rows_;
+};
+
+/// Aligned `key: value` lines.
+///
+/// What `info` and `config` both print: one subject and a list of fields, which
+/// is a list rather than a grid. Shared so the two cannot end up aligning
+/// differently.
+class Details {
+public:
+    void add(std::string key, std::string value);
+
+    /// A value that could not be measured still gets a line: a missing row is
+    /// invisible, and the point of these commands is to say what is and is not
+    /// known.
+    void add(std::string key, const std::optional<std::uint64_t>& bytes);
+
+    void write(std::ostream& out) const;
+
+private:
+    std::vector<std::pair<std::string, std::string>> lines_;
+    std::size_t width_ = 0;
 };
 
 /// One distribution as a JSON object, on a single line.
