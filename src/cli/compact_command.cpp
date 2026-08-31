@@ -29,9 +29,18 @@ struct Outcome {
     std::optional<std::uint64_t> reclaimed;
 };
 
-[[nodiscard]] ops::CompactOptions to_operation_options(const CompactCommandOptions& options) {
-    return ops::CompactOptions{
-        .trim = !options.no_trim, .shutdown = options.shutdown, .restart = options.restart};
+/// The flags, over the configured defaults.
+///
+/// Both flags are one-way, which is what lets this fold them together without
+/// asking CLI11 whether they were given: `--no-trim` can only turn trimming off
+/// and `--restart` can only turn restarting on. A setting the flag cannot
+/// express -- `wsl.unlock_timeout_seconds` -- comes from the file alone.
+[[nodiscard]] ops::CompactOptions to_operation_options(const CompactCommandOptions& options,
+                                                       const model::Config& config) {
+    return ops::CompactOptions{.trim = config.compact_trim && !options.no_trim,
+                               .shutdown = options.shutdown,
+                               .restart = config.compact_restart || options.restart,
+                               .unlock_timeout = config.unlock_timeout()};
 }
 
 void render_outcome(const Outcome& outcome, std::ostream& out) {
@@ -139,7 +148,7 @@ void render_dry_run(const ops::Plan& plan, std::ostream& out) {
                                     *services.host,
                                     *services.clock,
                                     std::filesystem::path{options.file},
-                                    to_operation_options(options)};
+                                    to_operation_options(options, services.config)};
     const auto planned = operation.plan();
     if (!planned.has_value()) {
         return report(planned.error(), global, out, err);
@@ -174,7 +183,7 @@ void render_dry_run(const ops::Plan& plan, std::ostream& out) {
     for (const model::Distro& distro : targets) {
         ops::CompactOperation operation{*services.disks, *services.filesystem,
                                         *services.host,  *services.clock,
-                                        distro,          to_operation_options(options)};
+                                        distro,          to_operation_options(options, services.config)};
         if (!global.dry_run) {
             outcomes.push_back(compact_one(operation, distro.name, global, sink));
             continue;

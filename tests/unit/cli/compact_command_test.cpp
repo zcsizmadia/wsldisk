@@ -70,12 +70,17 @@ struct Machine {
         disks.add_disk(path, disk);
     }
 
+    /// The settings `config.toml` would have supplied. Defaults unless a test
+    /// says otherwise, which is what every existing case relies on.
+    wsldisk::model::Config config;
+
     [[nodiscard]] Services services() {
         return Services{.registry = &registry,
                         .filesystem = &filesystem,
                         .disks = &disks,
                         .host = &host,
-                        .clock = &clock};
+                        .clock = &clock,
+                        .config = config};
     }
 
     [[nodiscard]] int run(const CompactCommandOptions& options, const GlobalOptions& global,
@@ -433,4 +438,56 @@ TEST_CASE("compact --file reports itself as json too", "[cli][compact]") {
     const nlohmann::json object = nlohmann::json::parse(out.str());
     CHECK(object["target"] == R"(D:\disks\docker_data.vhdx)");
     CHECK(object["reclaimed"] == 48 * gigabyte);
+}
+
+// The settings below were parsed, validated, written by `config set` and shown
+// by `config` for the whole of M1 while nothing read them: `load_config` had
+// exactly one caller, `config_command.cpp`. `wsldisk config set compact.restart
+// true` is a README example that did nothing. These assert the values reach the
+// operation, which is the part that was missing rather than the parsing.
+
+TEST_CASE("compact.restart in the config restarts without the flag", "[cli][compact][config]") {
+    Machine machine;
+    machine.config.compact_restart = true;
+    machine.host.set_running({"Ubuntu"});
+    std::ostringstream out;
+
+    CHECK(machine.run(CompactCommandOptions{.name = "Ubuntu"}, GlobalOptions{}, out) == exit_code_success);
+
+    const auto& commands = machine.host.commands();
+    const bool restarted = std::ranges::any_of(commands, [](const auto& invocation) {
+        return invocation.distribution == "Ubuntu" && !invocation.argv.empty() &&
+               invocation.argv.front() == "/bin/true";
+    });
+    CHECK(restarted);
+}
+
+TEST_CASE("compact.trim false in the config skips the trim", "[cli][compact][config]") {
+    Machine machine;
+    machine.config.compact_trim = false;
+    std::ostringstream out;
+
+    CHECK(machine.run(CompactCommandOptions{.name = "Ubuntu"}, GlobalOptions{}, out) == exit_code_success);
+
+    const auto& commands = machine.host.commands();
+    const bool trimmed = std::ranges::any_of(commands, [](const auto& invocation) {
+        return !invocation.argv.empty() && invocation.argv.front().find("fstrim") != std::string::npos;
+    });
+    CHECK_FALSE(trimmed);
+}
+
+TEST_CASE("the --no-trim flag still wins over a config that asks for trimming", "[cli][compact][config]") {
+    // Both flags are one-way, which is what lets the command fold them into the
+    // configured defaults without asking CLI11 whether they were given.
+    Machine machine;
+    machine.config.compact_trim = true;
+    std::ostringstream out;
+
+    CHECK(machine.run(CompactCommandOptions{.name = "Ubuntu", .no_trim = true}, GlobalOptions{}, out) ==
+          exit_code_success);
+
+    const bool trimmed = std::ranges::any_of(machine.host.commands(), [](const auto& invocation) {
+        return !invocation.argv.empty() && invocation.argv.front().find("fstrim") != std::string::npos;
+    });
+    CHECK_FALSE(trimmed);
 }

@@ -3,6 +3,7 @@
 #include <CLI/CLI.hpp>
 
 #include <exception>
+#include <format>
 #include <functional>
 #include <iostream>
 #include <ostream>
@@ -18,6 +19,7 @@
 #include "info_command.h"
 #include "list_command.h"
 #include "logger.h"
+#include "model/config.h"
 #include "options.h"
 #include "orphans_command.h"
 #include "platform/clock.h"
@@ -90,11 +92,27 @@ int run(std::span<const std::string> args, std::ostream& out, std::ostream& err)
         const platform::Win32VirtualDisk disks;
         const platform::WslExeHost host;
         const platform::SystemClock clock;
+
+        // Loaded once, here, so no command can be wired up without it. A missing
+        // file is the defaults and not an error -- `load_config` says so -- but
+        // a file that exists and does not parse is worth hearing about, and is
+        // not worth refusing to run over: the user asked to compact a disk, not
+        // to have their settings audited.
+        model::Config configuration;
+        if (const auto path = model::config_path(filesystem); path.has_value()) {
+            if (auto loaded = model::load_config(filesystem, *path); loaded.has_value()) {
+                configuration = *std::move(loaded);
+            } else {
+                logger.warn(std::format("ignoring {}: {}", path->string(), loaded.error().to_string()));
+            }
+        }
+
         const Services services{.registry = &registry,
                                 .filesystem = &filesystem,
                                 .disks = &disks,
                                 .host = &host,
-                                .clock = &clock};
+                                .clock = &clock,
+                                .config = std::move(configuration)};
 
         if (app.got_subcommand("info")) {
             return run_info(services, commands.info, options, logger, out, err);

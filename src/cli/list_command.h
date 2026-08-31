@@ -1,10 +1,12 @@
 #pragma once
 
 #include <iosfwd>
+#include <string_view>
 #include <vector>
 
 #include "errors.h"
 #include "interfaces.h"
+#include "model/config.h"
 #include "model/disk_info.h"
 #include "model/distro.h"
 #include "options.h"
@@ -32,6 +34,16 @@ struct Services {
     /// separately so a command cannot be wired up half from services and half
     /// from arguments.
     const IClock* clock = nullptr;
+
+    /// The settings from `config.toml`, already loaded.
+    ///
+    /// By value with the struct's own defaults, not a pointer: `config.toml` was
+    /// parsed, validated, written by `config set` and displayed by `config` for
+    /// the whole of M1 while *nothing read it*, because loading it was the
+    /// caller's job and no caller did it. A nullable pointer would leave the
+    /// same hole open. A default-constructed `Config` is exactly the behaviour
+    /// the commands had before, so a test that ignores this field is unaffected.
+    model::Config config;
 };
 
 /// One row of the listing.
@@ -58,8 +70,17 @@ struct ListOptions {
 /// is missing still produces a row with unknown disk columns -- that is exactly
 /// what `orphans --relink` exists to repair, and hiding it would hide the
 /// problem.
+///
+/// `probe_only` restricts guest probing to the distribution of that name.
+///
+/// Probing a stopped distribution starts it. `info <name> --probe` asks about
+/// one, so it must not boot the rest -- and it used to: it enumerated with
+/// probing on for every row and filtered afterwards, which on a Docker machine
+/// started four distributions and then left the utility VM holding every disk,
+/// so the user's next `compact` refused with exit 11. Empty means every row,
+/// which is what `list --probe` wants.
 [[nodiscard]] Result<std::vector<ListRow>> gather(const Services& services, const ListOptions& options,
-                                                  ILogger& logger);
+                                                  ILogger& logger, std::string_view probe_only = {});
 
 /// Renders the rows as a table.
 void render_table(const std::vector<ListRow>& rows, std::ostream& out);

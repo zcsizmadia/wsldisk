@@ -78,6 +78,12 @@ Result<std::vector<model::Orphan>> scan_orphans(const Services& services, const 
     if (!patterns.has_value()) {
         return std::unexpected(patterns.error());
     }
+    // `scan.dirs` from the file, then `--scan` from the command line. Both add
+    // to the built-in roots rather than replacing them: a configured directory
+    // is somewhere else the user also keeps disks, not the only place.
+    for (const std::string& directory : services.config.scan_dirs) {
+        patterns->emplace_back(directory);
+    }
     for (const std::string& directory : options.scan_dirs) {
         patterns->emplace_back(directory);
     }

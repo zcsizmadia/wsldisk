@@ -70,7 +70,8 @@ namespace {
 
 Result<ListRow> gather_one(const Services& services, const InfoOptions& options, ILogger& logger) {
     const ListOptions list_options{.probe = options.probe};
-    auto rows = gather(services, list_options, logger);
+    // Only the one being asked about: see the note on `gather`.
+    auto rows = gather(services, list_options, logger, options.name);
     if (!rows.has_value()) {
         return std::unexpected(rows.error());
     }

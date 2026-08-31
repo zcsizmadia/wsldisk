@@ -80,8 +80,15 @@ struct Machine {
         add_disk(path, size);
     }
 
+    /// The settings `config.toml` would have supplied.
+    wsldisk::model::Config config;
+
     [[nodiscard]] Services services() {
-        return Services{.registry = &registry, .filesystem = &filesystem, .disks = &disks, .host = &host};
+        return Services{.registry = &registry,
+                        .filesystem = &filesystem,
+                        .disks = &disks,
+                        .host = &host,
+                        .config = config};
     }
 
     [[nodiscard]] int run(const OrphansOptions& options, const GlobalOptions& global, std::ostream& out,
@@ -415,4 +422,32 @@ TEST_CASE("console_confirm reads the answer from the stream it was given", "[cli
 TEST_CASE("OrphansOptions knows when it is relinking", "[cli][orphans]") {
     CHECK_FALSE(OrphansOptions{}.relinking());
     CHECK(OrphansOptions{.relink_distro = "Ubuntu"}.relinking());
+}
+
+TEST_CASE("scan.dirs in the config is searched like --scan", "[cli][orphans][config]") {
+    // `wsldisk config set scan.dirs "D:\\WSL"` reported success and then
+    // `orphans` never looked there: nothing loaded the file.
+    Machine machine;
+    const std::filesystem::path elsewhere = LR"(D:\configured\ext4.vhdx)";
+    machine.add_orphan(elsewhere, 5 * gigabyte);
+    machine.config.scan_dirs.emplace_back(R"(D:\configured)");
+
+    const std::string output = output_of(machine, OrphansOptions{});
+
+    CHECK(output.find(R"(D:\configured\ext4.vhdx)") != std::string::npos);
+}
+
+TEST_CASE("a configured scan directory adds to the built-in roots", "[cli][orphans][config]") {
+    // Adds, never replaces: a configured directory is somewhere else the user
+    // also keeps disks, not the only place worth looking.
+    Machine machine;
+    machine.add_orphan(stale_disk, 3 * gigabyte);
+    const std::filesystem::path elsewhere = LR"(D:\configured\ext4.vhdx)";
+    machine.add_orphan(elsewhere, 5 * gigabyte);
+    machine.config.scan_dirs.emplace_back(R"(D:\configured)");
+
+    const std::string output = output_of(machine, OrphansOptions{});
+
+    CHECK(output.find("Removed-Distro") != std::string::npos);
+    CHECK(output.find(R"(D:\configured)") != std::string::npos);
 }
