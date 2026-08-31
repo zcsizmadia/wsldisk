@@ -57,11 +57,16 @@ TEST_CASE("a path with a space is quoted", "[platform][editor]") {
     CHECK(command_line == LR"(notepad "C:\Users\A Name\config.toml")");
 }
 
-TEST_CASE("an editor command with a space is quoted too", "[platform][editor]") {
+TEST_CASE("the editor command is passed through exactly as given", "[platform][editor]") {
     std::wstring command_line;
     const ScopedWin32Api scoped{starts_cleanly(command_line)};
 
-    REQUIRE(launch_editor(R"(C:\Program Files\editor.exe)", R"(C:\config.toml)").has_value());
+    // Arrives already quoted, because whether it needs quoting is
+    // `editor_command`'s decision: it is the one with a filesystem to ask
+    // whether the whole string names a program. Quoting here instead made
+    // `EDITOR=code --wait` unlaunchable -- CreateProcessW took the whole thing
+    // as the executable's name.
+    REQUIRE(launch_editor(R"("C:\Program Files\editor.exe")", R"(C:\config.toml)").has_value());
 
     CHECK(command_line == LR"("C:\Program Files\editor.exe" C:\config.toml)");
 }
@@ -122,4 +127,16 @@ TEST_CASE("the editor is waited for without a timeout", "[platform][editor]") {
     REQUIRE(launch_editor("notepad", R"(C:\config.toml)").has_value());
 
     CHECK(requested == INFINITE);
+}
+
+TEST_CASE("an editor with arguments is launched as a command line", "[platform][editor]") {
+    // `EDITOR=code --wait` is what git's own documentation recommends, and what
+    // most VS Code users have set. It used to fail with "file not found" for a
+    // program plainly on PATH.
+    std::wstring command_line;
+    const ScopedWin32Api scoped{starts_cleanly(command_line)};
+
+    REQUIRE(launch_editor("code --wait", R"(C:\config.toml)").has_value());
+
+    CHECK(command_line == LR"(code --wait C:\config.toml)");
 }

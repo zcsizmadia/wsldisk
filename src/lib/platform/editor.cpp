@@ -14,10 +14,19 @@
 namespace wsldisk::platform {
 namespace {
 
-/// Quotes an argument for a Win32 command line if it needs it.
+/// Quotes a command-line argument if it needs it.
 ///
 /// A config path under `%APPDATA%` goes through `C:\Users\<name>\AppData`, and
 /// a user whose account name has a space in it is not unusual.
+///
+/// Only ever applied to the *file*. `command` arrives ready to use, because
+/// whether it needs quoting cannot be decided here: `C:\Program Files\ed.exe`
+/// does and `code --wait` must not, and telling them apart means asking the
+/// filesystem whether the whole string names a program. The caller has an
+/// `IFileSystem`; this does not. Quoting the command here made
+/// `EDITOR=code --wait` -- the setting git's own documentation recommends --
+/// fail with "file not found" for a program plainly on PATH, because
+/// `CreateProcessW` took `"code --wait"` as the executable's name.
 [[nodiscard]] std::wstring quoted(const std::wstring& argument) {
     if (argument.find(L' ') == std::wstring::npos) {
         return argument;
@@ -30,7 +39,7 @@ namespace {
 Status launch_editor(std::string_view command, const std::filesystem::path& file) {
     // CreateProcessW writes to the command line buffer, so it has to be a
     // writable, NUL-terminated array of our own.
-    std::wstring command_line = quoted(model::to_wide(command)) + L' ' + quoted(file.wstring());
+    std::wstring command_line = model::to_wide(command) + L' ' + quoted(file.wstring());
     command_line.push_back(L'\0');
 
     STARTUPINFOW startup{};

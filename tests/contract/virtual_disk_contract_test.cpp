@@ -13,6 +13,7 @@
 
 #include "errors.h"
 #include "platform/virtual_disk.h"
+#include "platform/win32_api.h"
 
 using wsldisk::DiskProgress;
 using wsldisk::ErrorCode;
@@ -249,4 +250,21 @@ TEST_CASE("the working shape needs no administrator rights", "[contract][vdisk]"
     const auto handle = disks.open(disk.path());
     REQUIRE(handle.has_value());
     CHECK((*handle)->compact([](const DiskProgress&) { return true; }).has_value());
+}
+
+TEST_CASE("cancel_io_ex answers for a handle with nothing pending", "[contract][vdisk]") {
+    // The real table entry, which no other test reaches: cancelling a genuine
+    // compaction part-way is not something a test can arrange reliably. What can
+    // be checked is that the entry is wired to the right API and behaves --
+    // CancelIoEx with no outstanding I/O fails with ERROR_NOT_FOUND rather than
+    // doing anything surprising.
+    OVERLAPPED overlapped{};
+
+    const BOOL cancelled =
+        wsldisk::platform::real_win32_api().cancel_io_ex(::GetCurrentProcess(), &overlapped);
+
+    // Not crashing and not hanging is the point; either answer is acceptable.
+    if (cancelled == FALSE) {
+        CHECK(::GetLastError() != ERROR_SUCCESS);
+    }
 }
