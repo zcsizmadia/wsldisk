@@ -256,15 +256,21 @@ jobs:
       #
       # Keyless: the certificate binds the signature to this workflow's OIDC
       # identity, so there is no private key to hold and none to leak.
+      #
+      # One `.sigstore.json` bundle per file rather than a `.sig` and a `.pem`.
+      # cosign v3 deprecated `--output-signature` and `--output-certificate` and
+      # defaults to the new bundle format, and with no `--bundle` it tries to
+      # write a bundle to an empty path: "create bundle file: open : no such
+      # file or directory", which is exactly what the first release candidate
+      # hit. The bundle carries the signature and the certificate together, so a
+      # verifier fetches one file rather than remembering two.
       - name: Sign the artifacts
         working-directory: artifacts
         env:
           COSIGN_YES: 'true'
         run: |
           for file in *.zip *.cdx.json SHA256SUMS; do
-            cosign sign-blob "$file" \
-              --output-signature "$file.sig" \
-              --output-certificate "$file.pem"
+            cosign sign-blob "$file" --bundle "$file.sigstore.json"
           done
           ls -l
 
@@ -332,8 +338,7 @@ jobs:
           sha256sum -c SHA256SUMS
           gh attestation verify wsldisk-<version>-<arch>.zip --repo ${{ github.repository }}
           cosign verify-blob wsldisk-<version>-<arch>.zip \
-              --signature wsldisk-<version>-<arch>.zip.sig \
-              --certificate wsldisk-<version>-<arch>.zip.pem \
+              --bundle wsldisk-<version>-<arch>.zip.sigstore.json \
               --certificate-identity-regexp '^https://github.com/${{ github.repository }}/' \
               --certificate-oidc-issuer https://token.actions.githubusercontent.com
           ```
