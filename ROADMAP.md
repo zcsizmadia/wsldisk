@@ -56,52 +56,73 @@ M0 it has to encode, so they are not rediscovered.
 
 **Phase 1 — platform foundations** (all four in parallel; no dependencies)
 
-- [ ] `IRegistry`, `Win32Registry`, `FakeRegistry` with canned hives for every layout spike #4 found ([#20](https://github.com/zcsizmadia/wsldisk/issues/20))
-- [ ] `IVirtualDisk`, `Win32VirtualDisk`, `FakeVirtualDisk` — V2 open parameters + `ACCESS_NONE` only, with a contract test pinning that `METAOPS` fails ([#21](https://github.com/zcsizmadia/wsldisk/issues/21))
-- [ ] `IWslHost`, `WslExeHost`, `FakeWslHost` — `wsl.exe` only, `wslapi.dll` is gone; absolute paths, UTF-16 decode, stderr noise; fuzz target for the `--list` decoder ([#22](https://github.com/zcsizmadia/wsldisk/issues/22))
-- [ ] `IFileSystem` extensions (directory scan, allocated ranges, delete) and `IClock`/`FakeClock` ([#23](https://github.com/zcsizmadia/wsldisk/issues/23))
+- [x] `IRegistry`, `Win32Registry`, `FakeRegistry` with canned hives for every layout spike #4 found ([#20](https://github.com/zcsizmadia/wsldisk/issues/20))
+- [x] `IVirtualDisk`, `Win32VirtualDisk`, `FakeVirtualDisk` — V2 open parameters + `ACCESS_NONE` only, with a contract test pinning that `METAOPS` fails ([#21](https://github.com/zcsizmadia/wsldisk/issues/21))
+- [x] `IWslHost`, `WslExeHost`, `FakeWslHost` — `wsl.exe` only, `wslapi.dll` is gone; absolute paths, UTF-16 decode, stderr noise; fuzz target for the `--list` decoder ([#22](https://github.com/zcsizmadia/wsldisk/issues/22))
+- [x] `IFileSystem` extensions (directory scan, allocated ranges, delete) and `IClock`/`FakeClock` ([#23](https://github.com/zcsizmadia/wsldisk/issues/23))
 
 **Phase 2 — model** (needs Phase 1)
 
-- [ ] `Distro` model and registry enumeration — prefix forms preserved, `VhdFileName` optional, WSL1 enumerated but refused elsewhere; fuzz target for the value parser ([#24](https://github.com/zcsizmadia/wsldisk/issues/24))
-- [ ] Size probes — virtual, on-disk, allocated, guest `df` only when running or `--probe`; unknown is a value, not a failure ([#25](https://github.com/zcsizmadia/wsldisk/issues/25))
+- [x] `Distro` model and registry enumeration — prefix forms preserved, `VhdFileName` optional, WSL1 enumerated but refused elsewhere; fuzz target for the value parser ([#24](https://github.com/zcsizmadia/wsldisk/issues/24))
+- [x] Size probes — virtual, on-disk, allocated, guest `df` only when running or `--probe`; unknown is a value, not a failure ([#25](https://github.com/zcsizmadia/wsldisk/issues/25))
 
 **Phase 3 — operation framework** (needs `IClock`; parallel with Phase 2)
 
-- [ ] `Plan → Execute → Verify`, LIFO undo, `ProgressSink`, `OperationRunner` with automatic rollback ([#26](https://github.com/zcsizmadia/wsldisk/issues/26))
+- [x] `Plan → Execute → Verify`, LIFO undo, `ProgressSink`, `OperationRunner` with automatic rollback ([#26](https://github.com/zcsizmadia/wsldisk/issues/26))
 
 **Phase 4 — read-only commands** (needs Phases 2 and 3)
 
-- [ ] CLI plumbing — `--json`, `-v`/`--log`, `--yes`, `--dry-run`, exit codes, table and JSON renderers, golden tests, shared WSL1 refusal ([#27](https://github.com/zcsizmadia/wsldisk/issues/27))
-- [ ] `wsldisk list` ([#28](https://github.com/zcsizmadia/wsldisk/issues/28))
-- [ ] `wsldisk info <distro>` ([#29](https://github.com/zcsizmadia/wsldisk/issues/29))
-- [ ] `wsldisk orphans` with both scan layouts, `--delete`, `--relink` — the first mutating command, exercises rollback ([#30](https://github.com/zcsizmadia/wsldisk/issues/30))
+- [x] CLI plumbing — `--json`, `-v`/`--log`, `--yes`, `--dry-run`, exit codes, table and JSON renderers, golden tests, shared WSL1 refusal ([#27](https://github.com/zcsizmadia/wsldisk/issues/27))
+- [x] `wsldisk list` ([#28](https://github.com/zcsizmadia/wsldisk/issues/28))
+- [x] `wsldisk info <distro>` ([#29](https://github.com/zcsizmadia/wsldisk/issues/29))
+- [x] `wsldisk orphans` with both scan layouts, `--delete`, `--relink` — the first mutating command, exercises rollback ([#30](https://github.com/zcsizmadia/wsldisk/issues/30))
 
 **Phase 5 — mutating commands** (needs Phase 4)
 
-- [ ] `wsldisk trim <distro>` — `fstrim /`, never `-av`; honest about what "bytes trimmed" means ([#31](https://github.com/zcsizmadia/wsldisk/issues/31))
-- [ ] `CompactOperation` and `wsldisk compact` — D9 refuse-and-name with `--shutdown`, D10 unelevated path, `--all`/`--file`/`--dry-run`/`--no-trim`/`--restart`; the milestone's acceptance test ([#32](https://github.com/zcsizmadia/wsldisk/issues/32))
+- [x] `wsldisk trim <distro>` — `fstrim /`, never `-av`; honest about what "bytes trimmed" means ([#31](https://github.com/zcsizmadia/wsldisk/issues/31))
+- [x] `CompactOperation` and `wsldisk compact` — D9 refuse-and-name with `--shutdown`, D10 unelevated path, `--all`/`--file`/`--dry-run`/`--no-trim`/`--restart`; the milestone's acceptance test ([#32](https://github.com/zcsizmadia/wsldisk/issues/32))
 - [~] Attached-RO "full" compaction and `--elevate` — moved to M2 with the elevation IPC ([#6](https://github.com/zcsizmadia/wsldisk/issues/6))
 
 **Phase 6 — configuration** (needs Phase 4; parallel with Phase 5)
 
-- [ ] `config.toml` and `wsldisk config get|set|edit|path`; read-only `.wslconfig` display; fuzz target for the parser ([#33](https://github.com/zcsizmadia/wsldisk/issues/33))
-- [ ] `wsldisk completion powershell|bash|zsh`, generated from the CLI11 tree ([#34](https://github.com/zcsizmadia/wsldisk/issues/34))
+- [x] `config.toml` and `wsldisk config get|set|edit|path`; read-only `.wslconfig` display; fuzz target for the parser ([#33](https://github.com/zcsizmadia/wsldisk/issues/33))
+- [x] `wsldisk completion powershell|bash|zsh`, generated from the CLI11 tree ([#34](https://github.com/zcsizmadia/wsldisk/issues/34))
 
 **Phase 7 — integration harness** (needs `IWslHost`; unblocks every command's integration tests, so it starts early)
 
-- [ ] `ScratchDistro` RAII fixture, junk/hash helpers, second-distro helper for D9, the `wsl.exe` traps encoded ([#35](https://github.com/zcsizmadia/wsldisk/issues/35))
+- [x] `ScratchDistro` RAII fixture, junk/hash helpers, second-distro helper for D9, the `wsl.exe` traps encoded ([#35](https://github.com/zcsizmadia/wsldisk/issues/35))
 
 **Phase 8 — release** (docs need every command; `release.yml` can start any time)
 
-- [ ] README usage, `docs/COMPACT.md`, `docs/JSON.md`, real `docs/ARCHITECTURE.md` layout ([#36](https://github.com/zcsizmadia/wsldisk/issues/36))
-- [ ] `release.yml`: tag → full matrix → SBOM → attestations → GitHub Release → post-install smoke ([#37](https://github.com/zcsizmadia/wsldisk/issues/37))
+- [x] README usage, `docs/COMPACT.md`, `docs/JSON.md`, real `docs/ARCHITECTURE.md` layout ([#36](https://github.com/zcsizmadia/wsldisk/issues/36))
+- [x] `release.yml`: tag → full matrix → SBOM → attestations → GitHub Release → post-install smoke ([#37](https://github.com/zcsizmadia/wsldisk/issues/37))
 - [ ] winget + scoop manifests — may slip to M2 if the winget review is slow ([#38](https://github.com/zcsizmadia/wsldisk/issues/38))
 
 Already done in M0 and carried forward: `nightly.yml` with fuzzing and the
 integration suite; the size-string fuzz target.
 
+**Status: code complete.** Every command works, is covered end to end against
+real WSL2, and the release workflow is in place. What remains is publishing.
+
+Two things surfaced along the way that the plan did not anticipate:
+
+- **`orphans` finds Docker Desktop's `docker_data.vhdx`.** No WSL distribution
+  claims it, so it is an orphan by the definition here -- and it holds every
+  volume the user has. `--delete` grew an `IFileSystem::is_locked` guard and a
+  warning above the prompt because of it. "No registry entry points at it" is
+  not "nothing needs it".
+- **The `fstrim` figure is three orders of magnitude out.** Spike #1 measured
+  it; what the plan did not say is how far the honesty has to reach. The number
+  is `bytes_offered` in JSON, never `Estimate::bytes_freed`, and every rendering
+  carries the caveat.
+
 **Exit criteria:** A Windows Home user with no Hyper-V module can `winget install wsldisk` and reclaim space from Ubuntu and Docker Desktop with one command.
+
+Blocked on a published `v0.1.0`: the winget and scoop manifests need a real
+version and the SHA-256 of published assets, and the exit criterion is an
+install that works. `release.yml` is ready and rehearsable against a tag through
+`workflow_dispatch`; pushing the first tag is a decision for the repository
+owner, not something CI should do on its own.
 
 ---
 
