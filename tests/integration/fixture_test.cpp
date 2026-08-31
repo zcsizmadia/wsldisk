@@ -275,24 +275,54 @@ TEST_CASE("also_remove cleans up a directory the test made", "[integration]") {
     CHECK_FALSE(std::filesystem::exists(extra));
 }
 
-TEST_CASE("an invalid fixture leaves nothing behind", "[integration]") {
-    // `valid()` false means the import failed. Whatever went wrong, the
-    // destructor still has to be safe to run -- it is going to run.
+TEST_CASE("two fixtures with the same label do not share a directory", "[integration]") {
+    // They used to. Both name and directory were keyed on label + PID alone, so
+    // a second fixture with the same label collided with the first -- and its
+    // destructor then deleted the shared directory, taking the live ext4.vhdx of
+    // the still-registered first one with it.
     if (!ready()) {
         return;
     }
 
-    std::filesystem::path directory;
+    std::filesystem::path first_directory;
+    std::filesystem::path second_directory;
     {
-        // A name WSL will refuse: it already exists by the time the second one
-        // is constructed.
-        const ScratchDistro first{"duplicate"};
+        const ScratchDistro first{"same-label"};
+        const ScratchDistro second{"same-label"};
         REQUIRE(first.valid());
-        const ScratchDistro second{"duplicate"};
-        CHECK_FALSE(second.valid());
-        directory = second.directory();
-        CHECK(directory == first.directory());
+        REQUIRE(second.valid());
+
+        CHECK(first.name() != second.name());
+        CHECK(first.directory() != second.directory());
+        first_directory = first.directory();
+        second_directory = second.directory();
     }
 
-    CHECK_FALSE(std::filesystem::exists(directory));
+    CHECK_FALSE(std::filesystem::exists(first_directory));
+    CHECK_FALSE(std::filesystem::exists(second_directory));
+}
+
+TEST_CASE("a failed import does not delete the directory it collided with", "[integration]") {
+    // `valid()` false means the import failed. Whatever went wrong, the
+    // destructor still has to be safe to run -- it is going to run -- and it
+    // must not clean up files it did not create.
+    if (!ready()) {
+        return;
+    }
+
+    const ScratchDistro first{"collision"};
+    REQUIRE(first.valid());
+
+    {
+        // Deliberately takes the first one's name, so `wsl --import` refuses.
+        const ScratchDistro second{ScratchDistro::SameNameAs{first}};
+        CHECK_FALSE(second.valid());
+        CHECK_FALSE(second.owns_directory());
+        CHECK(second.directory() == first.directory());
+    }
+
+    // The one that failed has gone out of scope. The one that succeeded is still
+    // registered, and its disk is still there.
+    CHECK(std::filesystem::exists(first.vhdx()));
+    CHECK(first.boots());
 }

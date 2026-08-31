@@ -86,6 +86,15 @@ public:
         if (failure_) {
             return std::unexpected(*failure_);
         }
+        // A root that is not there is an error, not an empty list. The real
+        // Win32Registry says so and `registry_contract_test.cpp` pins it; a fake
+        // that answered "no subkeys" would let a test model "WSL is not
+        // installed" and exercise the zero-distributions branch instead of the
+        // error branch a real machine takes.
+        if (!keys_.contains(std::wstring{key})) {
+            return std::unexpected(Error{ErrorCode::Preflight, "the registry key does not exist",
+                                         "check that WSL is installed"});
+        }
         // Direct children only: "Lxss\{a}" is a subkey of "Lxss", "Lxss\{a}\b" is not.
         const std::wstring prefix = std::wstring{key} + L"\\";
         std::vector<std::wstring> names;
@@ -119,8 +128,19 @@ public:
         if (const auto named = write_failures_.find(std::wstring{value}); named != write_failures_.end()) {
             return std::unexpected(named->second);
         }
+        // Writing to a key that does not exist fails, and does not create it.
+        // `RegSetValueEx` needs an open handle, so the real Win32Registry cannot
+        // do otherwise -- `registry_contract_test.cpp` pins exactly this. A fake
+        // that created the key would let an operation write into a phantom entry
+        // built from a stale GUID, pass its own read-back `verify()`, and fail
+        // only on a real machine.
+        const auto existing = keys_.find(std::wstring{key});
+        if (existing == keys_.end()) {
+            return std::unexpected(Error{ErrorCode::Preflight, "the registry key does not exist",
+                                         "check that the distribution is registered"});
+        }
         writes_.push_back({std::wstring{key}, std::wstring{value}, std::wstring{data}});
-        keys_[std::wstring{key}][std::wstring{value}] = std::wstring{data};
+        existing->second[std::wstring{value}] = std::wstring{data};
         return {};
     }
 

@@ -57,6 +57,16 @@ public:
     /// check it before using anything else.
     explicit ScratchDistro(std::string_view label);
 
+    /// Takes another fixture's name, so a test can force a failed import.
+    ///
+    /// Names carry a per-instance counter precisely so this cannot happen by
+    /// accident; the one test that needs a genuine collision asks for it.
+    struct SameNameAs {
+        const ScratchDistro& other;
+    };
+
+    explicit ScratchDistro(SameNameAs duplicate);
+
     ~ScratchDistro();
 
     ScratchDistro(const ScratchDistro&) = delete;
@@ -73,6 +83,10 @@ public:
 
     /// The disk itself, at the location it was imported to.
     [[nodiscard]] std::filesystem::path vhdx() const { return directory_ / "ext4.vhdx"; }
+
+    /// Whether this fixture created its own directory, rather than finding one.
+    /// Only a fixture that made the directory may delete it.
+    [[nodiscard]] bool owns_directory() const noexcept { return created_directory_; }
 
     /// Runs a command in the guest, passing `argv` straight through `--exec`.
     ///
@@ -145,6 +159,7 @@ private:
     std::filesystem::path directory_;
     std::vector<std::filesystem::path> extra_;
     bool imported_ = false;
+    bool created_directory_ = false;
 };
 
 }  // namespace wsldisk::testing

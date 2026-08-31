@@ -26,7 +26,17 @@ TEST_CASE("WSL2 is available to the integration suite", "[integration]") {
     CHECK(version.output.find("WSL") != std::string::npos);
 }
 
-TEST_CASE("the default WSL version is 2", "[integration]") {
+TEST_CASE("wsl --status answers", "[integration]") {
+    // Named for what it checks. It used to be called "the default WSL version is
+    // 2", which it never verified and could not: `wsl --status` is localized, and
+    // the rule everywhere else in this codebase is that nothing parses localized
+    // wsl.exe text (PLAN.md, risks table). A test that cannot fail on the
+    // condition in its own name is worse than no test, because the green check
+    // reads as an assurance.
+    //
+    // Nothing needs the machine default anyway: `ScratchDistro` passes
+    // `--version 2` to every import explicitly, so the suite pins what it uses
+    // rather than depending on how the runner is configured.
     if (!wsldisk::testing::integration_enabled()) {
         SKIP("set WSLDISK_INTEGRATION=1 to run integration tests");
     }
@@ -34,7 +44,5 @@ TEST_CASE("the default WSL version is 2", "[integration]") {
     const std::vector<std::string> arguments{"--status"};
     const auto status = wsldisk::testing::run_wsl(arguments);
     REQUIRE(status.exit_code == 0);
-    // wsl.exe --status is localized, so match the digit next to "2" only as a
-    // smoke signal; commands never depend on this text (PLAN.md, risks table).
     CHECK_FALSE(status.output.empty());
 }

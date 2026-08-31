@@ -56,27 +56,124 @@ def test_no_test_case_name_starts_with_a_dash():
 # Every positional argument in that file must therefore be a name nothing will
 # ever register. `wsldisk-` prefixed placeholders are, and so is anything that
 # is a flag rather than a positional.
-INVOKE_ARGUMENTS = re.compile(r"invoke\(\{([^}]*)\}\)")
-STRING_LITERAL = re.compile(r'"([^"]*)"')
+RAW_STRING_OPEN = re.compile(r'R"([^("\\s]*)\(')
 
 
-def test_app_test_never_hands_run_a_real_subcommand():
-    source = TESTS_DIR / "unit" / "cli" / "app_test.cpp"
-    assert source.is_file(), f"{source} has moved; update this convention check"
+def string_literals(source: str) -> list[str]:
+    """Every string literal in a C++ source, skipping comments.
 
-    text = source.read_text(encoding="utf-8", errors="replace")
+    A regex is not enough: the first version of this check flagged
+    `app_test.cpp` for the word `compact` inside a comment that quotes the very
+    bug the check exists to prevent. A guard that cannot tell code from prose
+    about code is a guard people learn to work around.
+    """
+    literals: list[str] = []
+    index = 0
+    end = len(source)
+    while index < end:
+        two = source[index : index + 2]
+        if two == "//":
+            index = source.find("\n", index)
+            if index == -1:
+                break
+            continue
+        if two == "/*":
+            closed = source.find("*/", index + 2)
+            index = end if closed == -1 else closed + 2
+            continue
+        if source[index] == "'":
+            # A character literal, including '\'' -- never a command name.
+            index += 3 if source[index : index + 2] == "'\\" else 2
+            index = source.find("'", index) + 1 if index <= end else end
+            continue
+        raw = RAW_STRING_OPEN.match(source, index)
+        if raw:
+            terminator = ')' + raw.group(1) + '"'
+            closed = source.find(terminator, raw.end())
+            if closed == -1:
+                break
+            literals.append(source[raw.end() : closed])
+            index = closed + len(terminator)
+            continue
+        if source[index] == '"':
+            index += 1
+            start = index
+            while index < end and source[index] != '"':
+                index += 2 if source[index] == "\\" else 1
+            literals.append(source[start:index])
+            index += 1
+            continue
+        index += 1
+    return literals
+
+
+# `cli::run` and `main_entry` construct the *real* Win32Registry, Win32FileSystem
+# and WslExeHost. Anything a unit test hands them acts on the machine running the
+# suite.
+DRIVES_THE_REAL_SERVICES = re.compile(r"\b(?:cli::run|main_entry)\s*\(")
+
+# Where the command tree declares its subcommands. Read rather than listed, so a
+# new command is covered the day it lands.
+ADD_SUBCOMMAND = re.compile(r'add_subcommand\(\s*"([a-z][a-z0-9-]*)"')
+
+CLI_SOURCES = REPO_ROOT / "src" / "cli"
+
+
+def subcommand_names() -> set[str]:
+    names: set[str] = set()
+    for source in sorted(CLI_SOURCES.glob("*.cpp")):
+        names.update(ADD_SUBCOMMAND.findall(source.read_text(encoding="utf-8", errors="replace")))
+    return names
+
+
+def unit_test_sources() -> list[Path]:
+    return sorted((TESTS_DIR / "unit").rglob("*.cpp"))
+
+
+def test_the_command_tree_declares_subcommands():
+    # A guard on the guard: an empty set would make the check below pass for
+    # every file, which is exactly the failure it exists to prevent.
+    names = subcommand_names()
+    assert "compact" in names, f"no subcommands found in {CLI_SOURCES}; the check below is inert"
+
+
+def test_no_unit_test_names_a_subcommand_it_could_run():
+    """A unit test that can reach `cli::run` must not be able to name a command.
+
+    The original form of this check looked at one call pattern in one file, and
+    `plumbing_test.cpp` was already calling `cli::run` directly where it could
+    not see. It also could not see through a named argument vector, which is how
+    those calls are written.
+
+    So the rule is blunter and does not depend on how the call is spelled: in a
+    unit-test file that reaches the real services, the *name of a subcommand may
+    not appear at all*. You cannot invoke what you cannot name. Drive a command
+    through its own `run_*` entry point with fakes instead -- which is what every
+    `*_command_test.cpp` already does.
+
+    This is deliberately stricter than the danger: `completion` touches nothing.
+    A guard that has to reason about which commands are safe is a guard that
+    will one day reason wrongly, and this one is here because it already
+    happened -- `app_test.cpp` asserted `{"compact", "Ubuntu"}` was an unknown
+    subcommand, and when `compact` shipped, the unit suite ran `fstrim` inside a
+    real Ubuntu and terminated it.
+    """
+    commands = subcommand_names()
     offenders = []
-    for call in INVOKE_ARGUMENTS.finditer(text):
-        for argument in STRING_LITERAL.findall(call.group(1)):
-            if argument.startswith("-") or argument.startswith("wsldisk-") or not argument:
-                continue
-            offenders.append(argument)
+    for source in unit_test_sources():
+        text = source.read_text(encoding="utf-8", errors="replace")
+        if not DRIVES_THE_REAL_SERVICES.search(text):
+            continue
+        named = sorted({literal for literal in string_literals(text) if literal in commands})
+        if named:
+            offenders.append(f"{source.relative_to(REPO_ROOT)}: {', '.join(named)}")
 
     assert not offenders, (
-        "cli::run() constructs the real registry, filesystem and wsl.exe wrapper, "
-        "so a unit test must never hand it a name that is (or becomes) a "
-        "subcommand -- it would act on the machine running the suite. Use a "
-        "`wsldisk-` prefixed placeholder instead of: " + ", ".join(sorted(set(offenders)))
+        "these unit tests reach cli::run/main_entry, which wires the real "
+        "registry, filesystem and wsl.exe, and they name a real subcommand -- so "
+        "they can act on the machine running the suite. Use a `wsldisk-` "
+        "prefixed placeholder, or drive the command through its own run_* entry "
+        "point with fakes.\n" + "\n".join(offenders)
     )
 
 
@@ -209,3 +306,65 @@ def test_the_scoop_manifest_is_parseable_json_with_a_placeholder_version():
         entry = manifest["architecture"][architecture]
         assert "0.0.0" in entry["url"], f"{architecture} url has no version to substitute"
         assert set(entry["hash"]) == {"0"}, f"{architecture} hash is not a placeholder"
+
+
+def test_string_literals_skips_comments():
+    # The case that broke the first version of the subcommand check: a comment
+    # quoting the bad code it warns about.
+    source = '// still said `{"compact", "Ubuntu"}`.\nconst char* ok = "safe";\n'
+    assert string_literals(source) == ["safe"]
+
+
+def test_string_literals_skips_block_comments():
+    assert string_literals('/* "compact" */ auto x = "kept";') == ["kept"]
+
+
+def test_string_literals_reads_raw_strings():
+    # Test sources are full of these for Windows paths.
+    assert string_literals(r'const auto p = R"(D:\moved\ext4.vhdx)";') == [r"D:\moved\ext4.vhdx"]
+
+
+def test_string_literals_handles_escaped_quotes_and_char_literals():
+    # An escaped quote must not end the literal early, and `'"'` must not start
+    # one -- either mistake would desynchronise the rest of the file.
+    source = 'auto a = "he said \\"no\\""; char q = \'"\'; auto b = "after";'
+    assert string_literals(source) == ['he said \\"no\\"', "after"]
+
+
+def test_string_literals_does_not_mistake_a_url_for_a_comment():
+    assert string_literals('auto u = "https://example.com/x"; auto v = "next";') == [
+        "https://example.com/x",
+        "next",
+    ]
+
+
+FUZZ_CMAKE = TESTS_DIR / "fuzz" / "CMakeLists.txt"
+NIGHTLY_WORKFLOW = REPO_ROOT / ".github" / "workflows" / "nightly.yml"
+
+ADD_FUZZER = re.compile(r"^wsldisk_add_fuzzer\((\w+)", re.MULTILINE)
+
+
+def fuzz_targets() -> set[str]:
+    return set(ADD_FUZZER.findall(FUZZ_CMAKE.read_text(encoding="utf-8")))
+
+
+def test_there_are_fuzz_targets_to_check():
+    assert fuzz_targets(), f"no wsldisk_add_fuzzer calls found in {FUZZ_CMAKE}"
+
+
+def test_every_fuzz_target_is_fuzzed_nightly():
+    """A target absent from the nightly matrix is never actually fuzzed.
+
+    It still replays its seed corpus at `-runs=0` on every pull request, which
+    looks like coverage on the check list and is not: nothing new is ever tried.
+    `fuzz_parse_distro` and `fuzz_parse_config` sat in that state from the day
+    they were added -- the config parser being the one the docs single out as
+    most worth fuzzing.
+    """
+    workflow = NIGHTLY_WORKFLOW.read_text(encoding="utf-8")
+    missing = sorted(target for target in fuzz_targets() if target not in workflow)
+
+    assert not missing, (
+        "these fuzz targets exist but are not in nightly.yml's matrix, so they "
+        "are only ever replayed, never fuzzed: " + ", ".join(missing)
+    )

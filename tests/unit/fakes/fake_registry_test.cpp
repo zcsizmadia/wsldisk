@@ -26,6 +26,9 @@ bool contains(const std::vector<std::wstring>& names, const wchar_t* wanted) {
 
 TEST_CASE("the fake enumerates direct children only", "[fakes][registry]") {
     FakeRegistry registry;
+    // The parent has to exist, as it does on a real machine: enumerating a key
+    // that is not there is an error, not an empty list.
+    registry.add_key(L"Lxss");
     registry.set(L"Lxss\\{a}", L"DistributionName", std::wstring{L"A"});
     registry.set(L"Lxss\\{a}\\Nested", L"Value", std::wstring{L"x"});
     registry.set(L"Lxss\\{b}", L"DistributionName", std::wstring{L"B"});
@@ -204,4 +207,33 @@ TEST_CASE("an empty hive enumerates to nothing", "[fakes][hives]") {
     const auto names = registry.subkeys(hives::lxss);
     REQUIRE(names.has_value());
     CHECK(names->empty());
+}
+
+// The two pins below exist because the fake disagreed with the real registry on
+// both, and `registry_contract_test.cpp` already pinned the real behaviour --
+// so the contract suite knew the truth while the fake contradicted it, and no
+// unit test could see the difference. Fourth instance of that shape in this
+// repository; see the note in the issue for the others.
+
+TEST_CASE("the fake refuses a write to a key that does not exist", "[fakes][registry]") {
+    // Matches `registry_contract_test.cpp`: "writing to a key that does not
+    // exist fails without creating it". RegSetValueEx needs an open handle, so
+    // the real one cannot behave otherwise.
+    FakeRegistry registry;
+
+    const auto status = registry.write_string(L"Lxss\\{not-registered}", L"BasePath", L"D:\\x");
+
+    CHECK_FALSE(status.has_value());
+    // And it did not quietly bring the key into being.
+    CHECK_FALSE(registry.read_string(L"Lxss\\{not-registered}", L"BasePath").has_value());
+    CHECK(registry.writes().empty());
+}
+
+TEST_CASE("the fake refuses to enumerate a key that does not exist", "[fakes][registry]") {
+    // The failure this prevents: a test models "WSL is not installed" with a
+    // bare FakeRegistry, gets an empty list, and exercises the no-distributions
+    // branch instead of the error branch a real machine takes.
+    FakeRegistry registry;
+
+    CHECK_FALSE(registry.subkeys(L"Lxss").has_value());
 }

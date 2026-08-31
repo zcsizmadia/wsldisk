@@ -4,6 +4,7 @@
 
 #include <algorithm>
 #include <array>
+#include <atomic>
 #include <cctype>
 #include <cstdio>
 #include <cstdlib>
@@ -119,8 +120,26 @@ std::optional<std::string> integration_blocker() {
     return std::nullopt;
 }
 
+namespace {
+
+/// Distinguishes two fixtures created with the same label in one process.
+///
+/// Without it both get the same name *and the same directory*, so when the
+/// second import fails because the first distribution already exists, the
+/// second's destructor still deletes the shared directory -- taking the live
+/// `ext4.vhdx` of the still-registered first one with it. Nothing today depends
+/// on that surviving, but a fixture that destroys files belonging to another is
+/// the wrong ownership model, and `wsl --unregister` tolerating a disk that has
+/// already vanished is not a guarantee worth resting on.
+[[nodiscard]] int next_instance() {
+    static std::atomic<int> counter{0};
+    return counter.fetch_add(1);
+}
+
+}  // namespace
+
 ScratchDistro::ScratchDistro(std::string_view label)
-    : name_(std::format("wsldisk-test-{}-{}", label, ::GetCurrentProcessId())),
+    : name_(std::format("wsldisk-test-{}-{}-{}", label, ::GetCurrentProcessId(), next_instance())),
       directory_(std::filesystem::temp_directory_path() / name_) {
     const std::filesystem::path rootfs = pinned_rootfs();
     if (rootfs.empty()) {
@@ -128,10 +147,22 @@ ScratchDistro::ScratchDistro(std::string_view label)
     }
 
     std::error_code ignored;
-    std::filesystem::create_directories(directory_, ignored);
+    // `create_directories` is false when the directory was already there, which
+    // is how the destructor knows the difference between cleaning up after
+    // itself and deleting something that belongs to another fixture.
+    created_directory_ = std::filesystem::create_directories(directory_, ignored);
 
     const std::vector<std::string> import{"--import",     name_,       quoted(directory_),
                                           quoted(rootfs), "--version", "2"};
+    imported_ = run_wsl(import).exit_code == 0;
+}
+
+ScratchDistro::ScratchDistro(SameNameAs duplicate)
+    : name_(duplicate.other.name()), directory_(duplicate.other.directory()) {
+    const std::vector<std::string> import{"--import",  name_, quoted(directory_), quoted(pinned_rootfs()),
+                                          "--version", "2"};
+    // Expected to fail: the name is taken. `created_directory_` stays false, so
+    // the destructor leaves the original's disk where it is.
     imported_ = run_wsl(import).exit_code == 0;
 }
 
@@ -143,7 +174,13 @@ ScratchDistro::~ScratchDistro() {
         static_cast<void>(run_wsl(unregister));
     }
     std::error_code ignored;
-    std::filesystem::remove_all(directory_, ignored);
+    // Only what this fixture made. A directory that was already there belongs to
+    // something else -- and when an import failed because the name was taken,
+    // that something else is a live, still-registered distribution whose
+    // `ext4.vhdx` is sitting in it.
+    if (created_directory_) {
+        std::filesystem::remove_all(directory_, ignored);
+    }
     for (const std::filesystem::path& path : extra_) {
         std::filesystem::remove_all(path, ignored);
     }

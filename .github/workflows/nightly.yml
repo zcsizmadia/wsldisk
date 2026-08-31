@@ -32,7 +32,16 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        target: [fuzz_parse_size, fuzz_parse_wsl_list]
+        # Every target in tests/fuzz. Two of these were added to the tree and
+        # not to this list, so they only ever replayed their seed corpus at
+        # -runs=0 in the pull-request job and were never actually fuzzed.
+        # `tests/fuzz/CMakeLists.txt` is the source of truth; the repo
+        # convention tests check this list against it.
+        target:
+          - fuzz_parse_config
+          - fuzz_parse_distro
+          - fuzz_parse_size
+          - fuzz_parse_wsl_list
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
 
@@ -135,6 +144,17 @@ jobs:
           title: "fuzz: ${{ matrix.target }} found a crash"
           content-filepath: finding.md
           labels: bug, area:tests
+
+      # Last, so the reproducer is saved and the issue is filed first -- but the
+      # job still has to go red. A crash found by a `workflow_dispatch` run
+      # skips the issue step above, so without this it ends green, and nobody
+      # opens the artifacts of a passing job. Someone fuzzing harder before a
+      # release is exactly the person who must not be told it was clean.
+      - name: Fail if a reproducer was found
+        if: always() && steps.fuzz.outputs.crashed == 'true'
+        shell: pwsh
+        run: |
+          throw "${{ matrix.target }} found a reproducer; see the fuzz-reproducers-${{ matrix.target }} artifact"
 
   integration:
     name: integration against current WSL

@@ -14,11 +14,15 @@
 #include <CLI/CLI.hpp>
 #include <catch2/catch_test_macros.hpp>
 
+#include <algorithm>
 #include <array>
+#include <cctype>
 #include <cstdio>
 #include <filesystem>
 #include <fstream>
 #include <string>
+#include <string_view>
+#include <tuple>
 
 #include "commands.h"
 #include "completion_command.h"
@@ -71,8 +75,49 @@ int TempScript::counter = 0;
     return status;
 }
 
-/// Whether a program answers at all, so a missing shell skips rather than fails.
-[[nodiscard]] bool available(const std::string& probe) {
+/// The first path `where` reports for a program -- the one that would run --
+/// or empty when it is not on PATH.
+[[nodiscard]] std::string located(const std::string& program) {
+    std::FILE* pipe = ::_popen(("where " + program + " 2>NUL").c_str(), "r");
+    if (pipe == nullptr) {
+        return {};
+    }
+    std::array<char, 512> buffer{};
+    std::string first;
+    if (std::fgets(buffer.data(), static_cast<int>(buffer.size()), pipe) != nullptr) {
+        first = buffer.data();
+    }
+    std::ignore = ::_pclose(pipe);
+    while (!first.empty() && (first.back() == '\n' || first.back() == '\r')) {
+        first.pop_back();
+    }
+    return first;
+}
+
+/// Whether `path` is a program shipped in Windows' own system directory.
+[[nodiscard]] bool is_a_system32_program(std::string_view path) {
+    std::string lowered{path};
+    std::ranges::transform(lowered, lowered.begin(), [](unsigned char character) {
+        return static_cast<char>(std::tolower(character));
+    });
+    return lowered.find(R"(\windows\system32\)") != std::string::npos;
+}
+
+/// Whether a shell answers and is one this test may use.
+///
+/// On Windows `bash` frequently resolves to `C:\Windows\System32\bash.exe` --
+/// the WSL launcher, not a shell. Probing it starts the user's real default
+/// distribution and the utility VM with it, and what would then parse the script
+/// is whichever bash lives inside that guest. Neither is this test's business:
+/// the suite's rule is that it only ever touches throwaway `wsldisk-test-*`
+/// distributions, and it runs on every pull request with no opt-in.
+///
+/// The check has to come before the probe, because the probe is what starts WSL.
+[[nodiscard]] bool available(const std::string& program, const std::string& probe) {
+    const std::string path = located(program);
+    if (path.empty() || is_a_system32_program(path)) {
+        return false;
+    }
     return run(probe) == 0;
 }
 
@@ -87,8 +132,8 @@ int TempScript::counter = 0;
 }  // namespace
 
 TEST_CASE("the bash script parses in bash", "[contract][completion]") {
-    if (!available("bash -c \"exit 0\"")) {
-        SKIP("bash is not on this machine");
+    if (!available("bash", "bash -c \"exit 0\"")) {
+        SKIP("no bash on this machine that is not the WSL launcher");
     }
 
     const TempScript script{"completion.bash", script_for("bash")};
@@ -104,8 +149,8 @@ TEST_CASE("the bash script parses in bash", "[contract][completion]") {
 }
 
 TEST_CASE("the zsh script parses in zsh", "[contract][completion]") {
-    if (!available("zsh -c \"exit 0\"")) {
-        SKIP("zsh is not on this machine");
+    if (!available("zsh", "zsh -c \"exit 0\"")) {
+        SKIP("no zsh on this machine that is not the WSL launcher");
     }
 
     const TempScript script{"completion.zsh", script_for("zsh")};
@@ -115,7 +160,7 @@ TEST_CASE("the zsh script parses in zsh", "[contract][completion]") {
 }
 
 TEST_CASE("the powershell script parses in powershell", "[contract][completion]") {
-    if (!available("pwsh -NoProfile -Command \"exit 0\"")) {
+    if (!available("pwsh", "pwsh -NoProfile -Command \"exit 0\"")) {
         SKIP("pwsh is not on this machine");
     }
 
