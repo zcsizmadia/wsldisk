@@ -77,3 +77,78 @@ def test_app_test_never_hands_run_a_real_subcommand():
         "subcommand -- it would act on the machine running the suite. Use a "
         "`wsldisk-` prefixed placeholder instead of: " + ", ".join(sorted(set(offenders)))
     )
+
+
+# markdownlint's MD051 catches a link to a heading anchor that does not exist,
+# and it is the one lint that cannot run on a developer machine here: the npm
+# proxy returns 403 Forbidden for markdownlint-cli2, so `scripts/lint.ps1`
+# always reports it SKIPPED and CI is the first place the failure appears.
+#
+# This reimplements just that rule, in the pytest step that does run locally. It
+# caught nothing that markdownlint would not, but it catches it a CI round trip
+# earlier -- which is the whole point.
+MARKDOWN_FILES = ("README.md", "CONTRIBUTING.md", "PLAN.md", "ROADMAP.md")
+SAME_FILE_LINK = re.compile(r"\]\(#([^)]+)\)")
+ATX_HEADING = re.compile(r"^(#{1,6})\s+(.*?)\s*$")
+FENCE = re.compile(r"^\s*```")
+
+
+def markdown_documents() -> list[Path]:
+    documents = [REPO_ROOT / name for name in MARKDOWN_FILES]
+    documents.extend(sorted((REPO_ROOT / "docs").glob("*.md")))
+    return [document for document in documents if document.is_file()]
+
+
+def heading_anchors(text: str) -> set[str]:
+    """The anchors GitHub generates for a document's headings.
+
+    Lowercase, drop everything that is not alphanumeric, space or hyphen, then
+    turn spaces into hyphens. Backticks and quotes vanish; the hyphens inside
+    `--terminate` survive, which is exactly how a heading can end up with three
+    of them in a row and a hand-written fragment can be wrong.
+    """
+    anchors: set[str] = set()
+    seen: dict[str, int] = {}
+    in_fence = False
+    for line in text.splitlines():
+        if FENCE.match(line):
+            in_fence = not in_fence
+            continue
+        if in_fence:
+            continue
+        match = ATX_HEADING.match(line)
+        if not match:
+            continue
+        slug = "".join(
+            character
+            for character in match.group(2).lower()
+            if character.isalnum() or character in " -_"
+        ).strip().replace(" ", "-")
+        # A repeated heading gets `-1`, `-2`, ... appended, same as GitHub.
+        count = seen.get(slug, 0)
+        seen[slug] = count + 1
+        anchors.add(slug if count == 0 else f"{slug}-{count}")
+    return anchors
+
+
+def test_there_are_markdown_documents_to_check():
+    # A guard on the guard: an empty list would make the check below pass for
+    # the wrong reason.
+    assert markdown_documents(), "no markdown documents found"
+
+
+def test_every_same_document_link_fragment_resolves():
+    offenders = []
+    for document in markdown_documents():
+        text = document.read_text(encoding="utf-8", errors="replace")
+        anchors = heading_anchors(text)
+        for fragment in SAME_FILE_LINK.findall(text):
+            if fragment not in anchors:
+                offenders.append(
+                    f"{document.relative_to(REPO_ROOT)}: #{fragment} matches no heading"
+                )
+
+    assert not offenders, (
+        "markdownlint MD051 will fail on these, and it only runs in CI here -- "
+        "the npm proxy forbids markdownlint-cli2 locally.\n" + "\n".join(offenders)
+    )

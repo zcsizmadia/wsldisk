@@ -30,7 +30,7 @@ wsldisk compact Ubuntu
 1. **`fstrim /` in the guest.** Discards the blocks ext4 has freed. Skip it with
    `--no-trim` if you have already trimmed.
 2. **Stop the distribution and wait for the disk.** See
-   [below](#why-terminate-is-not-enough) — this is the step that most often
+   [below](#why-terminating-is-not-enough) — this is the step that most often
    refuses.
 3. **`CompactVirtualDisk` on the unattached file.** No administrator rights, no
    Hyper-V module.
@@ -44,7 +44,7 @@ Nothing inside the distribution changes. The filesystem is not rewritten, files
 are not moved, and the distribution boots afterwards exactly as it did before.
 What goes is the space the `.vhdx` was reserving for blocks nothing is using.
 
-## Why `--terminate` is not enough
+## Why terminating is not enough
 
 The WSL utility VM keeps **every attached disk** open for as long as **any**
 distribution is running. Stopping the one you want to compact does not release
@@ -184,6 +184,6 @@ it got. WSL1 distributions are skipped: they have no virtual disk.
 | 2 | The command line was wrong — no target, or two |
 | 3 | A preflight refused: WSL1, or the disk is not where the registry says |
 | 5 | The disk grew during compaction (verify failed) |
-| 11 | Something is holding the disk — see [above](#why-terminate-is-not-enough) |
+| 11 | Something is holding the disk — see [above](#why-terminating-is-not-enough) |
 
 The full list is in [JSON.md](JSON.md#exit-codes).
