@@ -220,6 +220,29 @@ namespace {
     return {reinterpret_cast<const std::byte*>(text.data()), text.size()};
 }
 
+/// Decodes a captured stream, which may be the guest's or wsl.exe's own.
+///
+/// `wsl --exec` passes the guest's stdout and stderr through as the guest wrote
+/// them, which is UTF-8. But when wsl.exe cannot reach the VM it never runs the
+/// guest at all, and what lands on stderr is wsl.exe's *own* diagnostic -- in
+/// UTF-16LE, like everything else it prints itself. A failure is exactly the
+/// case where that happens, so the stream a caller most wants to quote is the
+/// one most likely to be in the other encoding.
+///
+/// Reported from a released binary: `wsldisk compact Ubuntu` while WSL could not
+/// start showed "...established connection failed because con", cut mid-word,
+/// because the message was UTF-16LE bytes being treated as UTF-8 -- a NUL after
+/// every character, twice the length it looked.
+///
+/// A NUL is the tell, and it is a reliable one: a guest command's UTF-8 output
+/// cannot contain one, and UTF-16LE ASCII has one after every character.
+[[nodiscard]] std::string decode_stream(const std::string& raw) {
+    if (raw.find('\0') == std::string::npos) {
+        return raw;
+    }
+    return model::decode_utf16le(as_bytes(raw));
+}
+
 /// Runs a `wsl.exe` command whose only interesting answer is "did it work".
 [[nodiscard]] Status run_for_status(const std::vector<std::wstring>& arguments,
                                     std::chrono::milliseconds timeout, std::string_view what) {
@@ -286,10 +309,11 @@ Result<WslCommandResult> WslExeHost::run_as_root(std::string_view name, std::spa
     if (!raw.has_value()) {
         return std::unexpected(raw.error());
     }
-    // The guest's streams are the guest's bytes: UTF-8, not wsl.exe's UTF-16.
+    // Usually the guest's bytes, which are UTF-8. Not when wsl.exe failed before
+    // reaching the guest -- see `decode_stream`.
     return WslCommandResult{.exit_code = raw->exit_code,
-                            .standard_output = raw->standard_output,
-                            .standard_error = raw->standard_error};
+                            .standard_output = decode_stream(raw->standard_output),
+                            .standard_error = decode_stream(raw->standard_error)};
 }
 
 Status WslExeHost::mount_bare(const std::filesystem::path& vhdx) const {
