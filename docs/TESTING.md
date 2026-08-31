@@ -33,8 +33,8 @@ untested code is not shipped.
 - `FakeWslHost` — scripted responses for launch/terminate/mount; records commands run inside the "distro"; can simulate a running distro holding the lock.
 - `FakeFileSystem` — in-memory files with sparse ranges, volume types (NTFS/ReFS/FAT), free space, copy failures at byte N.
 - `FakeClock` — deterministic timeouts for wait-for-unlock loops.
-- Fixture rootfs: a ~3 MB Alpine minirootfs tarball downloaded by `scripts/fetch-fixtures.ps1` (SHA256-pinned, cached in CI). `TempDistro` (`tests/integration/integration_fixture.h`) imports it as `wsldisk-test-<case>-<pid>` under `%TEMP%` and unregisters it in the destructor, so it goes even on failure. A test that has not run the fetch script skips rather than fails: a missing fixture is a setup gap, not a defect.
-- `TempDistro::release_disk()` is how a test frees the `.vhdx` before moving it. `wsl --terminate` returns before the utility VM closes the file, so it terminates, polls `IFileSystem::is_locked`, and only falls back to `wsl --shutdown` if that is not enough — the fallback is certain but stops every distribution the developer running the suite is using.
+- Fixture rootfs: a ~3 MB Alpine minirootfs tarball downloaded by `scripts/fetch-fixtures.ps1` (SHA256-pinned, cached in CI). `ScratchDistro` (`tests/integration/integration_fixture.h`) imports it as `wsldisk-test-<case>-<pid>` under `%TEMP%` and unregisters it in the destructor, so it goes even when the test body throws — and a failing Catch2 assertion *is* a throw, so that is the common case, not the exotic one. A test that has not run the fetch script skips rather than fails: a missing fixture is a setup gap, not a defect.
+- `ScratchDistro::release_disk()` is how a test frees the `.vhdx` before moving it. `wsl --terminate` returns before the utility VM closes the file, so it terminates, polls `IFileSystem::is_locked`, and only falls back to `wsl --shutdown` if that is not enough — the fallback is certain but stops every distribution the developer running the suite is using.
 
 ## Integration test scenarios (must all exist before the corresponding command ships)
 
@@ -50,6 +50,16 @@ untested code is not shipped.
 - `snapshot` → mutate → `restore` → content matches snapshot; retention deletes the right ones; `restore --as` creates a bootable second distro.
 - `doctor` on a hive with each defect present flags exactly that defect; `--fix` remediates.
 - Elevation path: run under a non-admin token in CI (`runas /trustlevel:0x20000`) and assert exit code 4 with the right message when full mode is requested.
+
+### Traps the harness encodes
+
+All of these were hit during the M0 spikes or while building the M1 commands, and every one of them is a way to write an integration test that passes for the wrong reason.
+
+- **Never `sh -c`.** `ScratchDistro::run` takes an `argv` and passes it straight through `--exec`. The guest shell is busybox ash, which quotes differently from bash; a command assembled into one string behaves differently depending on what is in it. `run(argv)` with an argument containing a space is the test that tells the two apart.
+- **Absolute guest paths only, and the *right* absolute path.** `--exec` does not search PATH. `sha256sum` is at `/usr/bin/sha256sum` on Alpine — guessing `/bin/sha256sum` failed against the fixture itself.
+- **stderr chatter is not failure.** Every `--exec` prints one `Failed to translate '<path>'` line per Windows PATH entry. The exit code is the only signal that can be trusted.
+- **`write_junk` uses `conv=fsync`.** Without it `dd` returns as soon as the guest page cache has the data and a later delete drops it before the kernel writes it out — 512 MiB written grew the `.vhdx` by 33 MiB without fsync and 1.1 GiB with it. A compaction test built on the first number measures nothing and reports that nothing was reclaimed.
+- **`wsl --shutdown` stops everything.** `release_disk()` terminates and polls first, and only falls back to a shutdown when the utility VM will not let go (D9). Off CI it prints a warning first, because on a desktop it stops whatever the developer had open.
 
 ## Unit test conventions
 

@@ -23,9 +23,8 @@ using wsldisk::ops::RunOptions;
 using wsldisk::ops::TrimOperation;
 using wsldisk::platform::Win32Registry;
 using wsldisk::platform::WslExeHost;
-using wsldisk::testing::integration_enabled;
-using wsldisk::testing::pinned_rootfs;
-using wsldisk::testing::TempDistro;
+using wsldisk::testing::integration_blocker;
+using wsldisk::testing::ScratchDistro;
 
 namespace {
 
@@ -42,11 +41,8 @@ public:
 };
 
 [[nodiscard]] bool ready() {
-    if (!integration_enabled()) {
-        SKIP("set WSLDISK_INTEGRATION=1 to run integration tests");
-    }
-    if (pinned_rootfs().empty()) {
-        SKIP("run scripts/fetch-fixtures.ps1 to download the pinned rootfs");
+    if (const auto blocker = integration_blocker(); blocker.has_value()) {
+        SKIP(*blocker);
     }
     return true;
 }
@@ -58,7 +54,7 @@ TEST_CASE("trim runs in a real guest and leaves it running", "[integration]") {
         return;
     }
 
-    const TempDistro distro{"trim"};
+    const ScratchDistro distro{"trim"};
     REQUIRE(distro.valid());
 
     const Win32Registry registry;
@@ -88,7 +84,7 @@ TEST_CASE("trim changes nothing on a dry run against a real guest", "[integratio
         return;
     }
 
-    const TempDistro distro{"trimdry"};
+    const ScratchDistro distro{"trimdry"};
     REQUIRE(distro.valid());
 
     const Win32Registry registry;

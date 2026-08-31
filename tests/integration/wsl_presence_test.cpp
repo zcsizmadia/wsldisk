@@ -10,6 +10,7 @@
 
 #include <cstdlib>
 #include <string>
+#include <vector>
 
 #include "integration_fixture.h"
 
@@ -18,7 +19,8 @@ TEST_CASE("WSL2 is available to the integration suite", "[integration]") {
         SKIP("set WSLDISK_INTEGRATION=1 to run integration tests");
     }
 
-    const auto version = wsldisk::testing::run_wsl({"--version"});
+    const std::vector<std::string> arguments{"--version"};
+    const auto version = wsldisk::testing::run_wsl(arguments);
     INFO("wsl.exe --version said: " << version.output);
     REQUIRE(version.exit_code == 0);
     CHECK(version.output.find("WSL") != std::string::npos);
@@ -29,7 +31,8 @@ TEST_CASE("the default WSL version is 2", "[integration]") {
         SKIP("set WSLDISK_INTEGRATION=1 to run integration tests");
     }
 
-    const auto status = wsldisk::testing::run_wsl({"--status"});
+    const std::vector<std::string> arguments{"--status"};
+    const auto status = wsldisk::testing::run_wsl(arguments);
     REQUIRE(status.exit_code == 0);
     // wsl.exe --status is localized, so match the digit next to "2" only as a
     // smoke signal; commands never depend on this text (PLAN.md, risks table).

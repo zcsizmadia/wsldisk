@@ -39,9 +39,8 @@ using wsldisk::platform::Win32FileSystem;
 using wsldisk::platform::Win32Registry;
 using wsldisk::platform::Win32VirtualDisk;
 using wsldisk::platform::WslExeHost;
-using wsldisk::testing::integration_enabled;
-using wsldisk::testing::pinned_rootfs;
-using wsldisk::testing::TempDistro;
+using wsldisk::testing::integration_blocker;
+using wsldisk::testing::ScratchDistro;
 
 namespace {
 
@@ -64,11 +63,8 @@ public:
 };
 
 [[nodiscard]] bool ready() {
-    if (!integration_enabled()) {
-        SKIP("set WSLDISK_INTEGRATION=1 to run integration tests");
-    }
-    if (pinned_rootfs().empty()) {
-        SKIP("run scripts/fetch-fixtures.ps1 to download the pinned rootfs");
+    if (const auto blocker = integration_blocker(); blocker.has_value()) {
+        SKIP(*blocker);
     }
     return true;
 }
@@ -89,7 +85,7 @@ TEST_CASE("compact reclaims what was freed inside the guest", "[integration]") {
         return;
     }
 
-    TempDistro distro{"compact"};
+    ScratchDistro distro{"compact"};
     REQUIRE(distro.valid());
 
     // The case `compact` exists for: a disk that only ever grows. WSL 2.5+
@@ -98,22 +94,20 @@ TEST_CASE("compact reclaims what was freed inside the guest", "[integration]") {
     // will not do it -- the growth check below decides either way.
     static_cast<void>(distro.set_sparse(false));
 
-    // `conv=fsync` is not decoration. Without it dd returns as soon as the
-    // guest's page cache has the data, the `rm` drops it before the kernel ever
-    // writes it out, and the .vhdx never grows -- so the test would measure
-    // nothing and say the compaction reclaimed nothing. Measured while writing
-    // this: 512 MiB written without fsync grew the file by 33 MiB; with fsync,
-    // by 1.1 GiB.
-    const auto written = distro.run(
-        "/bin/dd if=/dev/urandom of=/big.bin bs=1M count=" + std::to_string(junk_megabytes) + " conv=fsync");
-    INFO(written.output);
-    REQUIRE(written.exit_code == 0);
-    REQUIRE(distro.run("/bin/sync").exit_code == 0);
+    // Grow the disk, then free the space inside the guest. The fixture's
+    // `write_junk` is what carries the `conv=fsync` this needs; without it the
+    // guest page cache absorbs the write and the .vhdx never grows.
+    REQUIRE(distro.write_junk(junk_megabytes));
+
+    // Something to compare afterwards: a compaction that damaged the filesystem
+    // would be a far worse failure than one that reclaimed nothing.
+    const auto before_hash = distro.file_hash("/etc/os-release");
+    REQUIRE(before_hash.has_value());
 
     // ext4 does not return the blocks to the host file on its own, even mounted
     // with `discard` -- measured in spike #1 and again here. That is the whole
     // reason `compact` runs fstrim first.
-    REQUIRE(distro.run("/bin/rm /big.bin").exit_code == 0);
+    REQUIRE(distro.delete_junk());
 
     const Win32FileSystem filesystem;
     REQUIRE(distro.release_disk());
@@ -150,8 +144,11 @@ TEST_CASE("compact reclaims what was freed inside the guest", "[integration]") {
     // test that pins the exact figure would be pinning the guest's allocator.
     CHECK(*operation.reclaimed() >= junk_megabytes * mebibyte / 2);
 
-    // The disk still works, which is the part that matters more than the saving.
-    CHECK(distro.run("/bin/true").exit_code == 0);
+    // The disk still works, which is the part that matters more than the
+    // saving -- and the file that was there before is byte for byte the file
+    // that is there now.
+    CHECK(distro.boots());
+    CHECK(distro.file_hash("/etc/os-release") == before_hash);
 }
 
 TEST_CASE("compact refuses rather than stopping WSL on its own", "[integration]") {
@@ -159,10 +156,10 @@ TEST_CASE("compact refuses rather than stopping WSL on its own", "[integration]"
         return;
     }
 
-    TempDistro distro{"compactbusy"};
+    ScratchDistro distro{"compactbusy"};
     REQUIRE(distro.valid());
     // Started and left running, so the utility VM holds its disk open.
-    REQUIRE(distro.run("/bin/true").exit_code == 0);
+    REQUIRE(distro.boots());
 
     const Win32Registry registry;
     const Win32FileSystem filesystem;
@@ -186,7 +183,7 @@ TEST_CASE("compact changes nothing on a dry run against a real disk", "[integrat
         return;
     }
 
-    TempDistro distro{"compactdry"};
+    ScratchDistro distro{"compactdry"};
     REQUIRE(distro.valid());
 
     const Win32Registry registry;
