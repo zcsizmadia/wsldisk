@@ -48,12 +48,49 @@ Branch protection on `main`: lint, build-test (all matrix legs), coverage, asan,
 
 ## `release.yml` — on tag `v*.*.*`
 
-1. Re-run the full `ci.yml` matrix (no reuse of PR artifacts).
-2. Build Release x64 + arm64, generate SBOM (`vcpkg export --sbom` / CycloneDX), `SHA256SUMS`.
-3. Sign: Sigstore `cosign sign-blob` + GitHub artifact attestations (`actions/attest-build-provenance`); Authenticode via Azure Trusted Signing when a certificate is configured (secret gated).
-4. Create GitHub Release with generated notes from Conventional Commits (`release-drafter` / `git-cliff`), attach zips, sums, SBOM, attestations.
-5. Open PRs to `microsoft/winget-pkgs` (`wingetcreate update`) and the scoop bucket with the new version and hashes.
-6. Post-release smoke: fresh `windows-2025` runner does `winget install zcsizmadia.wsldisk` (once published) and runs `wsldisk --version`, `wsldisk list --json`.
+Also runnable by hand (`workflow_dispatch`) against an existing tag, which is
+how a release candidate gets rehearsed.
+
+1. **`full matrix`** — calls `ci.yml` as a reusable workflow on the tag. Not a
+   reuse of artifacts a pull request left behind: the thing being released has
+   to be the thing that was tested. `github.event_name` stays `push` inside a
+   called workflow, so the jobs skipped on pull requests — ASan and
+   clang-format/clang-tidy — do run for a release.
+2. **`build`** — Release x64 and arm64 on their native runners, configured with
+   `-DWSLDISK_BUILD_TESTS=OFF -DVCPKG_MANIFEST_FEATURES=` so Catch2 is not a
+   dependency of the shipped artifact and therefore not in its SBOM. Zips
+   `wsldisk.exe`, `LICENSE`, `README.md`, `COMPACT.md` and `JSON.md`, and writes
+   `SHA256SUMS` in the format `sha256sum -c` reads.
+3. **SBOM** — CycloneDX 1.5, built from vcpkg's own `vcpkg.spdx.json` documents
+   rather than by scanning the binary. The binary is statically linked, so a
+   scanner finds almost nothing, while vcpkg knows exactly which port at which
+   version went in. Port revisions (`3.12.0#2`) are percent-encoded in the purl,
+   because `#` opens a subpath there.
+4. **Attestation and signatures** — `actions/attest-build-provenance` over the
+   zip and the SBOM, plus keyless Sigstore `cosign sign-blob`. Both mint an OIDC
+   token, which is why the job asks for `id-token: write`.
+5. **`publish`** — release notes grouped from Conventional Commit subjects since
+   the previous tag (a `git describe` away), not from merge messages: a release
+   page is read by someone deciding whether to upgrade. A tag containing `-` is
+   published as a pre-release. The notes end with the exact commands to verify a
+   download.
+6. **`smoke`** — a fresh runner per architecture downloads what was *published*,
+   checks the SHA-256 against `SHA256SUMS`, runs `gh attestation verify`, then
+   unpacks and runs `--version`, `list --json` and `completion`. Every step
+   before this one can pass while producing a release nobody can use; this is
+   what would notice. `list --json` accepts exit 0 or 3 — a runner with no WSL
+   should give a parseable error object, not a crash — and every stdout line is
+   parsed as JSON.
+
+Not yet done, deliberately:
+
+- **Authenticode.** There is no certificate. Until there is, SmartScreen will
+  warn on first run, and the release notes say so rather than leaving people to
+  wonder. An EV or Azure Trusted Signing certificate is the only thing that
+  changes this; when one exists it is a signing step before the zip.
+- **winget and scoop.** [#38](https://github.com/zcsizmadia/wsldisk/issues/38).
+  The post-release smoke tests the GitHub Release; testing a `winget install`
+  has to wait until there is a manifest to install.
 
 ## `codeql.yml`
 
