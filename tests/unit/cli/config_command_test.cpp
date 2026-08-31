@@ -29,9 +29,11 @@ using wsldisk::cli::ConfigOptions;
 using wsldisk::cli::editor_command;
 using wsldisk::cli::GlobalOptions;
 using wsldisk::cli::LaunchEditor;
+using wsldisk::cli::load_configuration;
 using wsldisk::cli::NullLogger;
 using wsldisk::cli::run_config;
 using wsldisk::cli::Services;
+using wsldisk::cli::StreamLogger;
 using wsldisk::testing::FakeClock;
 using wsldisk::testing::FakeFileSystem;
 using wsldisk::testing::FakeRegistry;
@@ -528,4 +530,59 @@ TEST_CASE("open_in_editor runs the editor the environment names", "[cli][config]
 
     REQUIRE(wsldisk::cli::open_in_editor(filesystem, R"(C:\config.toml)").has_value());
     CHECK(command_line == LR"(myeditor C:\config.toml)");
+}
+
+// `load_configuration` is what every command runs with. It used to sit inline in
+// `app.cpp`, beside the real Win32 services, where neither failure path could be
+// reached from a test -- and both of them decide what `compact` does.
+
+TEST_CASE("load_configuration reads the file when there is one", "[cli][config]") {
+    Machine machine;
+    machine.filesystem.add_text_file(config_file, "[compact]\nrestart = true\n");
+    NullLogger logger{machine.errors};
+
+    const auto config = load_configuration(machine.filesystem, logger);
+
+    CHECK(config.compact_restart);
+    CHECK(machine.errors.str().empty());
+}
+
+TEST_CASE("load_configuration falls back to defaults when there is no file", "[cli][config]") {
+    // The ordinary case on a machine nobody has configured. Not a warning: there
+    // is nothing wrong.
+    Machine machine;
+    NullLogger logger{machine.errors};
+
+    const auto config = load_configuration(machine.filesystem, logger);
+
+    CHECK(config.compact_trim);
+    CHECK_FALSE(config.compact_restart);
+    CHECK(machine.errors.str().empty());
+}
+
+TEST_CASE("load_configuration warns and carries on when the file will not parse", "[cli][config]") {
+    // Still the defaults, and still exit zero from whatever command asked. The
+    // user wanted to compact a disk, not to have their settings audited.
+    Machine machine;
+    machine.filesystem.add_text_file(config_file, "this is not toml [[[\n");
+    StreamLogger logger{machine.errors, false, {}};
+
+    const auto config = load_configuration(machine.filesystem, logger);
+
+    CHECK(config.compact_trim);
+    CHECK(machine.errors.str().find("ignoring") != std::string::npos);
+}
+
+TEST_CASE("load_configuration warns when it cannot even find the file", "[cli][config]") {
+    // `%APPDATA%` cannot be expanded, so `config_path` fails before there is a
+    // file to read at all. Still the defaults, still no refusal.
+    Machine machine;
+    machine.filesystem.fail_variable(
+        L"APPDATA", wsldisk::Error{ErrorCode::Generic, "no such variable", "check the environment"});
+    StreamLogger logger{machine.errors, false, {}};
+
+    const auto config = load_configuration(machine.filesystem, logger);
+
+    CHECK(config.compact_trim);
+    CHECK(machine.errors.str().find("built-in defaults") != std::string::npos);
 }

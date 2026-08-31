@@ -193,3 +193,20 @@ TEST_CASE("an error renders for a human as message and remedy", "[cli][render]")
 
     CHECK(to_human_line(error) == "Ubuntu is running -- run `wsl --shutdown` first");
 }
+
+TEST_CASE("the json line emits a non-ASCII path as UTF-8", "[cli][render]") {
+    // `vhdx_path` used to go through `path::string()` while `base_path`, right
+    // beside it, went through `to_utf8`. On a 932 machine that put Shift-JIS
+    // bytes into the object and `dump()` threw for invalid UTF-8, so `list
+    // --json` failed with a JSON-library message instead of listing anything.
+    Distro distro = ubuntu();
+    distro.name = "Übuntu";
+    distro.vhdx_path = LR"(D:\wsl\Übuntu\ext4.vhdx)";
+
+    const std::string line = to_json_line(distro, DiskInfo{});
+
+    // Parses at all, which is the half that used to throw.
+    const nlohmann::json object = nlohmann::json::parse(line);
+    CHECK(object.at("name") == "Übuntu");
+    CHECK(object.at("vhdx_path") == R"(D:\wsl\Übuntu\ext4.vhdx)");
+}

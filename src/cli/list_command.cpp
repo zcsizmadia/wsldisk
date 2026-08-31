@@ -8,6 +8,7 @@
 
 #include "app.h"
 #include "logger.h"
+#include "model/text.h"
 #include "render.h"
 
 namespace wsldisk::cli {
@@ -22,7 +23,8 @@ namespace {
 
 }  // namespace
 
-Result<std::vector<ListRow>> gather(const Services& services, const ListOptions& options, ILogger& logger) {
+Result<std::vector<ListRow>> gather(const Services& services, const ListOptions& options, ILogger& logger,
+                                    std::string_view probe_only) {
     const auto distros = model::enumerate(*services.registry);
     if (!distros.has_value()) {
         return std::unexpected(distros.error());
@@ -41,8 +43,6 @@ Result<std::vector<ListRow>> gather(const Services& services, const ListOptions&
         logger.warn(running.error().to_string());
     }
 
-    const model::ProbeOptions probe{.probe_guest = options.probe};
-
     std::vector<ListRow> rows;
     rows.reserve(distros->distros.size());
     for (const model::Distro& distro : distros->distros) {
@@ -53,6 +53,10 @@ Result<std::vector<ListRow>> gather(const Services& services, const ListOptions&
         }
 
         if (has_a_disk(distro)) {
+            // Per row, because probing boots a stopped distribution and a caller
+            // that asked about one must not start the others.
+            const model::ProbeOptions probe{
+                .probe_guest = options.probe && (probe_only.empty() || distro.find_matches(probe_only))};
             row.info = model::measure(distro, *services.filesystem, *services.disks, *services.host, probe);
             // Notes explain why a column is blank. Verbose rather than a
             // warning: on a machine in normal use every running distribution
@@ -84,7 +88,7 @@ void render_table(const std::vector<ListRow>& rows, std::ostream& out) {
         table.add_row({Cell{.text = name}, Cell{.text = std::to_string(row.distro.version)},
                        Cell{.text = state}, Cell{.bytes = row.info.size_on_disk},
                        Cell{.bytes = row.info.guest_used}, Cell{.bytes = row.info.reclaimable()},
-                       Cell{.text = row.distro.vhdx_path.string()}});
+                       Cell{.text = model::path_to_utf8(row.distro.vhdx_path)}});
     }
     table.render(out);
 }

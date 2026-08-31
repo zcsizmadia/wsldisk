@@ -172,4 +172,8 @@ std::wstring to_wide(std::string_view text) {
     return result;
 }
 
+std::string path_to_utf8(const std::filesystem::path& path) {
+    return to_utf8(path.wstring());
+}
+
 }  // namespace wsldisk::model

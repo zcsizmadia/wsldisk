@@ -6,6 +6,7 @@
 #include <ostream>
 
 #include "model/size.h"
+#include "model/text.h"
 
 namespace wsldisk::cli {
 namespace {
@@ -99,7 +100,7 @@ std::string to_json_line(const model::Distro& distro, const model::DiskInfo& inf
     object["guid"] = distro.guid;
     object["version"] = distro.version;
     object["default"] = distro.is_default;
-    object["vhdx_path"] = distro.vhdx_path.string();
+    object["vhdx_path"] = model::path_to_utf8(distro.vhdx_path);
 
     if (!distro.flavor.empty()) {
         object["flavor"] = distro.flavor;

@@ -18,6 +18,7 @@
 
 using wsldisk::AllocatedRange;
 using wsldisk::ErrorCode;
+using wsldisk::exit_code_success;
 using wsldisk::cli::gather_one;
 using wsldisk::cli::GlobalOptions;
 using wsldisk::cli::InfoOptions;
@@ -368,4 +369,43 @@ TEST_CASE("a differencing disk names its parent", "[cli][info]") {
     std::ostringstream json;
     render_details_json(row, json);
     CHECK(nlohmann::json::parse(json.str())["parent_path"] == R"(C:\wsl\base.vhdx)");
+}
+
+TEST_CASE("info --probe starts only the distribution it was asked about", "[cli][info]") {
+    // It used to enumerate with probing on for every row and filter afterwards,
+    // so `info Ubuntu --probe` booted every stopped distribution on the machine.
+    // On a Docker box that is four of them -- and the utility VM then holds
+    // every attached disk (D9), so the user's next `compact` refuses with exit
+    // 11 because of the command before it.
+    //
+    // Every line still ran and every assertion still passed while that was true:
+    // what was wrong was the side effect on the rows nobody looked at, which is
+    // exactly what a coverage gate cannot see. So this asserts on who was asked
+    // to run something, not on what came back.
+    Machine machine;
+    machine.host.set_running({});
+    std::ostringstream out;
+    NullLogger logger{machine.errors};
+
+    const InfoOptions options{.name = "Ubuntu", .probe = true};
+    CHECK(run_info(machine.services(), options, GlobalOptions{}, logger, out, machine.errors) ==
+          exit_code_success);
+
+    for (const auto& invocation : machine.host.commands()) {
+        INFO("probed " << invocation.distribution);
+        CHECK(invocation.distribution == "Ubuntu");
+    }
+}
+
+TEST_CASE("info without --probe starts nothing at all", "[cli][info]") {
+    Machine machine;
+    machine.host.set_running({});
+    std::ostringstream out;
+    NullLogger logger{machine.errors};
+
+    const InfoOptions options{.name = "Ubuntu"};
+    CHECK(run_info(machine.services(), options, GlobalOptions{}, logger, out, machine.errors) ==
+          exit_code_success);
+
+    CHECK(machine.host.commands().empty());
 }
