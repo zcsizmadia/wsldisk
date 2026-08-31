@@ -46,6 +46,36 @@ void render_orphan_json(const std::vector<model::Orphan>& orphans, std::ostream&
     }
 }
 
+/// One deletion's outcome as a JSON line.
+void render_deletion_json(const model::Orphan& orphan, const std::optional<std::string>& failure,
+                          std::ostream& out) {
+    nlohmann::json object;
+    object["path"] = model::path_to_utf8(orphan.path);
+    object["deleted"] = !failure.has_value();
+    if (failure.has_value()) {
+        object["error"] = *failure;
+    }
+    out << object.dump() << '\n';
+}
+
+/// Deletes one file, or says why it could not be.
+///
+/// A file something else has open is not one to delete, whatever the registry
+/// says about it.
+[[nodiscard]] std::optional<std::string> delete_one(const Services& services, const model::Orphan& orphan) {
+    const auto locked = services.filesystem->is_locked(orphan.path);
+    if (!locked.has_value()) {
+        return locked.error().to_string();
+    }
+    if (*locked) {
+        return model::path_to_utf8(orphan.path) + " is in use by another process";
+    }
+    if (const Status removed = services.filesystem->remove(orphan.path); !removed.has_value()) {
+        return removed.error().to_string();
+    }
+    return std::nullopt;
+}
+
 }  // namespace
 
 bool ask(std::istream& in, std::ostream& out, std::string_view question) {
@@ -98,18 +128,6 @@ Result<std::vector<model::Orphan>> scan_orphans(const Services& services, const 
         logger.verbose(warning);
     }
     return orphans;
-}
-
-/// One deletion's outcome as a JSON line.
-void render_deletion_json(const model::Orphan& orphan, const std::optional<std::string>& failure,
-                          std::ostream& out) {
-    nlohmann::json object;
-    object["path"] = model::path_to_utf8(orphan.path);
-    object["deleted"] = !failure.has_value();
-    if (failure.has_value()) {
-        object["error"] = *failure;
-    }
-    out << object.dump() << '\n';
 }
 
 int delete_orphans(const Services& services, const std::vector<model::Orphan>& orphans,
@@ -165,18 +183,11 @@ int delete_orphans(const Services& services, const std::vector<model::Orphan>& o
 
     // A file that will not delete is reported and the rest are still tried:
     // stopping at the first failure leaves the user to work out how far it got.
-    int failures = 0;
+    std::size_t failures = 0;
     for (const model::Orphan& orphan : orphans) {
-        std::optional<std::string> failure;
-
-        // A file something else has open is not one to delete, whatever the
-        // registry says about it.
-        if (const auto locked = services.filesystem->is_locked(orphan.path); !locked.has_value()) {
-            failure = locked.error().to_string();
-        } else if (*locked) {
-            failure = model::path_to_utf8(orphan.path) + " is in use by another process";
-        } else if (const Status removed = services.filesystem->remove(orphan.path); !removed.has_value()) {
-            failure = removed.error().to_string();
+        const std::optional<std::string> failure = delete_one(services, orphan);
+        if (failure.has_value()) {
+            ++failures;
         }
 
         if (global.json) {
@@ -186,9 +197,6 @@ int delete_orphans(const Services& services, const std::vector<model::Orphan>& o
         } else {
             out << "deleted " << model::path_to_utf8(orphan.path) << '\n';
         }
-        if (failure.has_value()) {
-            ++failures;
-        }
     }
 
     if (failures > 0) {
@@ -197,7 +205,7 @@ int delete_orphans(const Services& services, const std::vector<model::Orphan>& o
         // 11 as "running, or its disk is held open" -- and a script that saw 11
         // for a mixed result would follow the documented remedy and run
         // `wsl --shutdown`, which cannot help with an access-denied file.
-        const bool nothing_went = failures == static_cast<int>(orphans.size());
+        const bool nothing_went = failures == orphans.size();
         return report(Error{nothing_went ? ErrorCode::DistroBusy : ErrorCode::Partial,
                             std::format("{} of {} file(s) could not be deleted", failures, orphans.size()),
                             "a disk held open by something else is not an orphan; close whatever "

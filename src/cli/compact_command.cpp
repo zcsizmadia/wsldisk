@@ -227,7 +227,19 @@ void render_outcome_json(const Outcome& outcome, std::ostream& out) {
     // pre-checks with `--dry-run` and branches on 11 to decide whether
     // `--shutdown` is needed would never have seen it: the dry run said 3 where
     // the real run says 11, for the same machine state.
-    return exit_code_for(refusals.front().failure->code);
+    //
+    // Every entry here has a failure by construction -- `compact_each` only
+    // collects the ones that refused -- but the type does not say so, and a
+    // caller that ever collected a success would deference an empty optional.
+    // `Preflight` is the right answer if the invariant is ever broken.
+    // The guard is for clang-tidy's bugprone-unchecked-optional-access, and the
+    // exclusion is because the false side cannot happen: `compact_each` only
+    // collects outcomes that refused, so every entry here has a failure. Kept
+    // rather than deleted, per docs/TESTING.md -- a defensive check no producer
+    // can currently trigger belongs in the code behind an exclusion.
+    const std::optional<Error>& first = refusals.front().failure;
+    return exit_code_for(first.has_value() ? first->code  // LCOV_EXCL_BR_LINE
+                                           : ErrorCode::Preflight);
 }
 
 /// Prints every outcome and returns the exit code for the set.
