@@ -172,7 +172,7 @@ If it does not boot the registry is put back and the command fails, so a
 A single object.
 
 ```json
-{"path":"C:\\Users\\example\\AppData\\Roaming\\wsldisk\\config.toml","settings":{"compact.restart":"false","compact.trim":"true","scan.dirs":"","wsl.unlock_timeout_seconds":"5"},"wslconfig":{"defaultVhdSize":"256GB"}}
+{"path":"C:\\Users\\example\\AppData\\Roaming\\wsldisk\\config.toml","settings":{"compact.restart":"false","compact.trim":"true","scan.dirs":"","wsl.unlock_timeout_seconds":"90"},"wslconfig":{"defaultVhdSize":"256GB"}}
 ```
 
 | Field | Type | Always? | Meaning |

@@ -28,18 +28,6 @@ using wsldisk::testing::ScratchDistro;
 
 namespace {
 
-/// A sink that ignores everything: the assertions are about what the guest did.
-class QuietSink final : public wsldisk::ops::ProgressSink {
-public:
-    void step_started(std::size_t, const wsldisk::ops::StepPlan&) override {}
-
-    void step_finished(std::size_t, const wsldisk::ops::StepPlan&) override {}
-
-    void step_progress(const wsldisk::DiskProgress&) override {}
-
-    void message(std::string_view) override {}
-};
-
 [[nodiscard]] bool ready() {
     if (const auto blocker = integration_blocker(); blocker.has_value()) {
         SKIP(*blocker);
@@ -65,7 +53,7 @@ TEST_CASE("trim runs in a real guest and leaves it running", "[integration]") {
 
     const WslExeHost host;
     TrimOperation operation{host, *registered};
-    QuietSink sink;
+    wsldisk::ops::NullSink sink;
 
     const auto outcome = run(operation, sink, RunOptions{});
     if (!outcome.has_value()) {
@@ -95,7 +83,7 @@ TEST_CASE("trim changes nothing on a dry run against a real guest", "[integratio
 
     const WslExeHost host;
     TrimOperation operation{host, *registered};
-    QuietSink sink;
+    wsldisk::ops::NullSink sink;
 
     const auto outcome = run(operation, sink, RunOptions{.dry_run = true});
 

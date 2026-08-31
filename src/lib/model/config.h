@@ -33,12 +33,24 @@ struct Config {
     ///
     /// Seconds in the file because that is what a human writes; the operation
     /// takes a duration.
-    std::uint32_t unlock_timeout_seconds = 5;
+    std::uint32_t unlock_timeout_seconds = 90;
 
     [[nodiscard]] std::chrono::milliseconds unlock_timeout() const noexcept {
         return std::chrono::seconds{unlock_timeout_seconds};
     }
 };
+
+/// The largest `unlock_timeout_seconds` the config will accept.
+///
+/// The utility VM idles out in about a minute once nothing is running, and if
+/// something *is* running it never does -- so past a couple of minutes a longer
+/// wait only delays a refusal the user has to act on. An hour is far past useful
+/// and still leaves the value obviously a number of seconds.
+///
+/// Lives here rather than in the parser because `compact` suggests a longer wait
+/// in its refusal, and a suggestion the config would then reject is worse than
+/// no suggestion at all.
+constexpr std::uint32_t max_unlock_timeout_seconds = 3600;
 
 /// Every key `get` and `set` accept, in the order `wsldisk config get` prints
 /// them with no argument.

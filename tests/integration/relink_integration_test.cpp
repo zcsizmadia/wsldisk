@@ -51,19 +51,6 @@ struct Machine {
     }
 };
 
-/// A `ProgressSink` that ignores everything. The assertions are about the
-/// registry and whether the distribution boots, not about the narration.
-class QuietSink final : public wsldisk::ops::ProgressSink {
-public:
-    void step_started(std::size_t, const wsldisk::ops::StepPlan&) override {}
-
-    void step_finished(std::size_t, const wsldisk::ops::StepPlan&) override {}
-
-    void step_progress(const wsldisk::DiskProgress&) override {}
-
-    void message(std::string_view) override {}
-};
-
 /// Skips unless real WSL and the pinned rootfs are both available.
 [[nodiscard]] bool ready() {
     if (const auto blocker = integration_blocker(); blocker.has_value()) {
@@ -97,7 +84,7 @@ TEST_CASE("relink follows a disk that moved and the distribution still boots", "
 
     RelinkOperation operation{machine.registry, machine.filesystem, machine.host, *registered,
                               moved / "ext4.vhdx"};
-    QuietSink sink;
+    wsldisk::ops::NullSink sink;
     const auto outcome = run(operation, sink, RunOptions{});
 
     if (!outcome.has_value()) {
@@ -139,7 +126,7 @@ TEST_CASE("a relink that cannot boot leaves the distribution as it was", "[integ
 
     RelinkOperation operation{machine.registry, machine.filesystem, machine.host, *before,
                               decoy / "ext4.vhdx"};
-    QuietSink sink;
+    wsldisk::ops::NullSink sink;
     const auto outcome = run(operation, sink, RunOptions{});
 
     CHECK_FALSE(outcome.has_value());

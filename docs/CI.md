@@ -12,29 +12,25 @@ Matrix: `{ msvc, clang-cl } × { x64, arm64 } × { Debug, Release }` on `windows
 Jobs:
 
 1. **lint (markdown, actions, python)** — markdown lint, `actionlint` for workflows, `ruff` and the coverage gate's own tests. Runs on every pull request: it needs no C++ toolchain, so it costs seconds, and markdownlint cannot run on a machine that cannot reach the npm registry.
-2. **lint (clang-format, clang-tidy)** — the same two tools `scripts/lint.ps1` runs locally, against the pinned LLVM and a `compile_commands.json`. **`main` and the weekly schedule only.** It needs a vcpkg restore and a choco LLVM install, about six minutes, which made it one of the two things gating every review. Both tools are pinned and deterministic and the local script refuses to run on any other version, so a local pass means what CI would have said; the trade is that a slip nobody ran locally lands on `main` and is fixed forward.
+2. **lint (clang-format, clang-tidy)** — the same two tools `scripts/lint.ps1` runs locally, against the pinned LLVM and a `compile_commands.json`. Runs on every pull request. It was main-only for a while on the argument that the local script is equivalent; that argument did not survive a clang-tidy slip leaving `main` red across four merges ([#96](https://github.com/zcsizmadia/wsldisk/issues/96)). The real problem was that one clang-tidy process was handling all 38 files on one core, so a full pass took a quarter of an hour and became a check people skipped. Both CI and the local script now run one process per file across the cores: about three and a half minutes locally on twenty of them.
 3. **build-test** — configure with preset, build, `ctest -L unit`, `ctest -L contract` (real Win32, no WSL). Uploads test logs (JUnit via Catch2 reporter) for the PR summary.
 4. **coverage** — clang-cl x64 Debug with `-fprofile-instr-generate -fcoverage-mapping`; runs unit + contract (+ integration when available); `llvm-profdata merge`, `llvm-cov export -format=lcov`; `scripts/check-coverage.py --lines 100 --branches 100 --functions 100`; uploads to Codecov; attaches HTML report artifact. **Required check.**
-5. **asan** — MSVC Debug with `/fsanitize=address`, unit + contract tests. **`main` only.** Run it locally before pushing: it is the check most likely to find something no other build can, having caught a `stack-use-after-scope` that MSVC Debug and Release, clang-cl Debug and Release, and the coverage build all passed.
+5. **asan** — MSVC Debug with `/fsanitize=address`, unit + contract tests. Runs on every pull request. It is the check most likely to find something no other build can, having caught a `stack-use-after-scope` that MSVC Debug and Release, clang-cl Debug and Release, and the coverage build all passed — which is a poor thing to leave to whether someone remembered.
 6. **integration** — `WSLDISK_INTEGRATION=1`, installs WSL (`wsl --install --no-distribution`), fetches the pinned Alpine fixture, runs `ctest -L integration`. Runs on hosted `windows-2025` if the M0 spike confirms nested virtualisation works; otherwise on `[self-hosted, windows, wsl2]` and only for pushes to `main` + `pull_request_target` from trusted authors. Always cleans up test distros in a `post` step.
 7. **package** — Release x64/arm64 static builds, `wsldisk --version` smoke test, zip + SHA256SUMS, uploaded as artifacts (consumed by `release.yml`).
 
-> **Temporary, and meant to be reverted.** Keeping `clang-format`, `clang-tidy`,
-> AddressSanitizer and CodeQL off pull requests is a deliberate trade for speed
-> while the platform layer is being built out quickly. Once the pace settles --
-> M1 complete is the natural point. Nothing has been removed, only gated, so
-> putting them back is three edits:
+> **CodeQL is the one still off pull requests.** `lint-native` and `asan` were
+> gated with it, for speed while the platform layer was being built out quickly.
+> That cost more than it saved -- a check nobody is made to run is a check
+> nobody runs, and `main` went red for four merges because of it -- so both are
+> back, the slow one having turned out to be slow for a fixable reason.
 >
-> 1. delete `if: github.event_name != 'pull_request'` from `lint-native` in `ci.yml`
-> 2. delete the same line from `asan` in `ci.yml`
-> 3. in `codeql.yml`, restore the `pull_request: branches: [main]` trigger and
->    set `cancel-in-progress` back to `${{ github.event_name == 'pull_request' }}`
->    so a superseded pull-request run stops instead of finishing
->
-> Until then all three run locally instead, which only works if they are
-> actually run. `scripts/lint.ps1` covers clang-format and clang-tidy and now
-> refuses to run on an unpinned version; ASan has no such guard, so it is a
-> step in the CONTRIBUTING checklist and nothing enforces it.
+> CodeQL stays on `main` and the weekly schedule: seven minutes, and it reasons
+> about whole-program dataflow rather than a diff, so what it would say on a
+> branch it says on `main` a few minutes later. Putting it back is one edit --
+> restore the `pull_request: branches: [main]` trigger in `codeql.yml` and set
+> `cancel-in-progress` to `${{ github.event_name == 'pull_request' }}` so a
+> superseded run stops instead of finishing.
 
 Branch protection on `main`: lint, build-test (all matrix legs), coverage, asan, package required; linear history; signed commits encouraged.
 

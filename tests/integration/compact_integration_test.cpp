@@ -50,18 +50,6 @@ constexpr std::uint64_t mebibyte = 1024ULL * 1024;
 /// that writing it does not dominate the run.
 constexpr std::uint64_t junk_megabytes = 512;
 
-/// A sink that ignores everything: the assertions are about the file.
-class QuietSink final : public wsldisk::ops::ProgressSink {
-public:
-    void step_started(std::size_t, const wsldisk::ops::StepPlan&) override {}
-
-    void step_finished(std::size_t, const wsldisk::ops::StepPlan&) override {}
-
-    void step_progress(const wsldisk::DiskProgress&) override {}
-
-    void message(std::string_view) override {}
-};
-
 [[nodiscard]] bool ready() {
     if (const auto blocker = integration_blocker(); blocker.has_value()) {
         SKIP(*blocker);
@@ -129,7 +117,7 @@ TEST_CASE("compact reclaims what was freed inside the guest", "[integration]") {
                                clock,
                                registered(registry, distro.name()),
                                CompactOptions{.shutdown = true}};
-    QuietSink sink;
+    wsldisk::ops::NullSink sink;
 
     const auto outcome = run(operation, sink, RunOptions{});
     if (!outcome.has_value()) {
@@ -167,7 +155,7 @@ TEST_CASE("compact refuses rather than stopping WSL on its own", "[integration]"
     const WslExeHost host;
     const SystemClock clock;
     CompactOperation operation{disks, filesystem, host, clock, registered(registry, distro.name())};
-    QuietSink sink;
+    wsldisk::ops::NullSink sink;
 
     const auto outcome = run(operation, sink, RunOptions{});
 
@@ -195,7 +183,7 @@ TEST_CASE("compact changes nothing on a dry run against a real disk", "[integrat
     REQUIRE(before.has_value());
 
     CompactOperation operation{disks, filesystem, host, clock, registered(registry, distro.name())};
-    QuietSink sink;
+    wsldisk::ops::NullSink sink;
 
     const auto outcome = run(operation, sink, RunOptions{.dry_run = true});
 

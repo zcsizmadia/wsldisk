@@ -14,13 +14,6 @@ constexpr std::string_view compact_trim_key = "compact.trim";
 constexpr std::string_view compact_restart_key = "compact.restart";
 constexpr std::string_view unlock_timeout_key = "wsl.unlock_timeout_seconds";
 
-/// The largest wait that is still a wait rather than a hang.
-///
-/// The handle is never released on a timer (D9), so a long timeout only delays
-/// a refusal the user has to act on. An hour is far past useful and still
-/// leaves the value obviously a number of seconds.
-constexpr std::uint32_t max_unlock_timeout_seconds = 3600;
-
 /// `true`/`false`, and nothing else.
 ///
 /// Not `1`/`yes`/`on`: TOML has one spelling for a boolean, and accepting more
@@ -167,8 +160,9 @@ Result<Config> parse_config(std::string_view text) {
         return fail(ErrorCode::Usage,
                     std::format("{} is {}, which is more than the {} second maximum", unlock_timeout_key,
                                 config.unlock_timeout_seconds, max_unlock_timeout_seconds),
-                    "the disk is never released on a timer, so a long wait only delays a "
-                    "refusal; use a value under an hour");
+                    "the utility VM releases the disk about a minute after the last "
+                    "distribution stops, and never while one is running; use a value "
+                    "under an hour");
     }
     return config;
 }
@@ -253,8 +247,9 @@ Status set_config_value(Config& config, std::string_view key, std::string_view v
             return fail(ErrorCode::Usage,
                         std::format("{} takes a whole number of seconds up to {}, not `{}`", key,
                                     max_unlock_timeout_seconds, value),
-                        "the disk is never released on a timer, so a long wait only delays a "
-                        "refusal; use a value under an hour");
+                        "the utility VM releases the disk about a minute after the last "
+                        "distribution stops, and never while one is running; use a "
+                        "value under an hour");
         }
         config.unlock_timeout_seconds = *parsed;
         return {};

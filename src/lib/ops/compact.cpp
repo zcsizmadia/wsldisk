@@ -4,6 +4,7 @@
 #include <format>
 #include <utility>
 
+#include "../model/config.h"
 #include "trim.h"
 
 namespace wsldisk::ops {
@@ -19,6 +20,23 @@ namespace {
         text += name;
     }
     return text;
+}
+
+/// How often the wait loop asks whether the disk is free.
+constexpr std::chrono::milliseconds poll_interval{500};
+
+/// How often it redraws the countdown. Slower than the poll, because a line
+/// that changes twice a second is a flicker rather than information.
+constexpr std::chrono::milliseconds tick_interval{1'000};
+
+/// A longer wait to suggest when the current one ran out.
+///
+/// Double it, capped at what the config will actually accept -- suggesting a
+/// value `wsldisk config set` would then reject is worse than suggesting
+/// nothing.
+[[nodiscard]] std::uint32_t suggested_longer_wait(std::chrono::milliseconds current) {
+    const auto doubled = std::chrono::duration_cast<std::chrono::seconds>(current).count() * 2;
+    return static_cast<std::uint32_t>(std::min<std::int64_t>(doubled, model::max_unlock_timeout_seconds));
 }
 
 }  // namespace
@@ -54,11 +72,18 @@ std::optional<std::uint64_t> CompactOperation::reclaimed() const noexcept {
 }
 
 std::vector<std::string> CompactOperation::others_running() const {
-    // Whatever WSL says is running, unfiltered. The target has already been
-    // terminated by the time this is asked, so it will not be in the list --
-    // and if WSL says it still is, that is the truth worth telling the user
-    // rather than something to quietly drop.
+    // Whatever WSL says is running, unfiltered. This is asked after a full wait,
+    // by which point the list has settled -- so if it still names the target,
+    // the target has been started again, which is the truth worth telling the
+    // user rather than something to quietly drop.
     return host_->running().value_or(std::vector<std::string>{});
+}
+
+std::vector<std::string> CompactOperation::others_running_excluding(const model::Distro& distro) const {
+    std::vector<std::string> running = others_running();
+    const auto is_target = [&distro](const std::string& name) { return distro.find_matches(name); };
+    running.erase(std::ranges::begin(std::ranges::remove_if(running, is_target)), running.end());
+    return running;
 }
 
 void CompactOperation::plan_guest_steps(const model::Distro& distro, Plan& plan) {
@@ -153,12 +178,20 @@ Status CompactOperation::release_disk(const model::Distro& distro, ProgressSink&
         return stopped;
     }
 
+    // Asked before the wait, not only after it. The VM idles out and lets go
+    // only once nothing is running; while something is, every second of the
+    // wait is spent on an answer that cannot change, and ninety of them is a
+    // long time to sit in front of a refusal that was knowable at the start.
+    const std::vector<std::string> blockers = others_running_excluding(distro);
+    const bool waiting_can_help = blockers.empty();
+
     // Poll rather than sleep once: on a machine where nothing else is running,
     // the disk comes free almost immediately, and waiting out the whole timeout
     // would be time spent for nothing.
     // The check comes before the wait, so a zero timeout still gets an answer
     // rather than an assumption.
     const auto deadline = clock_->now() + options_.unlock_timeout;
+    std::chrono::milliseconds waited{0};
     while (true) {  // LCOV_EXCL_BR_LINE -- every exit is a return or a break
         const auto locked = filesystem_->is_locked(path_);
         if (!locked.has_value()) {
@@ -167,26 +200,59 @@ Status CompactOperation::release_disk(const model::Distro& distro, ProgressSink&
         if (!*locked) {
             return {};
         }
-        if (clock_->now() >= deadline) {
+        if (!waiting_can_help || clock_->now() >= deadline) {
             break;
         }
-        progress.message("waiting for the disk to be released");
-        clock_->sleep_for(std::chrono::milliseconds{500});
+        // Said once, because it is the same the whole way through: printing it
+        // per poll filled the screen with one repeated sentence.
+        if (waited == std::chrono::milliseconds{0}) {
+            progress.message(
+                "the WSL utility VM still has the disk open; it lets go about a "
+                "minute after the last distribution stops");
+        }
+        // The countdown goes on a line that redraws, so the wait shows as one
+        // number ticking rather than ninety copies of a sentence.
+        if (waited % tick_interval == std::chrono::milliseconds{0}) {
+            const auto elapsed = std::chrono::duration_cast<std::chrono::seconds>(waited);
+            const auto limit = std::chrono::duration_cast<std::chrono::seconds>(options_.unlock_timeout);
+            progress.status(
+                std::format("waiting for the disk ... {}s of {}s", elapsed.count(), limit.count()));
+        }
+        clock_->sleep_for(poll_interval);
+        waited += poll_interval;
     }
 
     // Naming who is holding it is the whole point of the refusal: "still locked"
     // leaves the user guessing which window to close.
-    const std::vector<std::string> others = others_running();
+    //
+    // Re-asked only when the wait actually ran: something may have started
+    // during it, including the target. Breaking out early means the list has
+    // had no time to settle since the terminate, so use what was asked then.
+    const std::vector<std::string> others = waiting_can_help ? others_running() : blockers;
     const std::string who =
-        others.empty() ? "something else is holding it" : std::format("still open in {}", joined(others));
+        others.empty() ? "still held by the WSL utility VM" : std::format("still open in {}", joined(others));
     // Telling someone who just used `--shutdown` to re-run with `--shutdown`
     // would be sending them round a loop. Whatever has the file at that point is
     // not WSL.
-    const std::string remedy =
-        options_.shutdown ? "WSL has been shut down and something else still has the file open -- a backup "
-                            "agent, an antivirus scanner or Hyper-V Manager are the usual ones"
-                          : "the WSL utility VM keeps every disk open while any distribution runs; "
-                            "re-run with --shutdown to stop them all, or close them yourself first";
+    std::string remedy;
+    if (options_.shutdown) {
+        remedy =
+            "WSL has been shut down and something else still has the file open -- a backup "
+            "agent, an antivirus scanner or Hyper-V Manager are the usual ones";
+    } else if (others.empty()) {
+        // Nothing is running, so this is the utility VM winding down rather than
+        // anything the user has to close. Waiting longer is the answer, and
+        // telling them to stop distributions that are already stopped is not.
+        remedy = std::format(
+            "nothing is running, so the VM is still winding down -- it releases the disk about a "
+            "minute after the last distribution stops. Raise the wait with `wsldisk config set "
+            "wsl.unlock_timeout_seconds {}`, or re-run with --shutdown to stop it now",
+            suggested_longer_wait(options_.unlock_timeout));
+    } else {
+        remedy =
+            "the WSL utility VM keeps every disk open while any distribution runs; "
+            "re-run with --shutdown to stop them all, or close them yourself first";
+    }
     return fail(ErrorCode::DistroBusy, std::format("{} is {}", path_.string(), who), remedy);
 }
 

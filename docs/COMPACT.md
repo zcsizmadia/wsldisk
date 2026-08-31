@@ -50,12 +50,28 @@ The WSL utility VM keeps **every attached disk** open for as long as **any**
 distribution is running. Stopping the one you want to compact does not release
 its disk if anything else is still up — including Docker Desktop, which counts.
 
-Measured: after `wsl --terminate`, the handle was still held after five minutes
-of polling. It is not released on a timer. See decision D9 in
-[PLAN.md](../PLAN.md).
+It *is* released on a timer once nothing is running. With the last distribution
+stopped, the utility VM shuts down on its idle timeout and lets go: measured at
+66.6s and 66.7s on two consecutive runs against WSL 2.7.8.0, whose
+`vmIdleTimeout` defaults to 60 seconds.
 
-So `compact` terminates the target, polls briefly, and if the disk is still held
-it **refuses** and tells you who is holding it:
+That corrects the original D9 measurement, which said the handle survived five
+minutes of polling. The likely explanation is that something else was running at
+the time — which does hold it indefinitely, and is the half of D9 that stands.
+
+So `compact` terminates the target and waits up to 90 seconds, which outlasts the
+idle timeout. While it waits it says so once and then counts on a line that
+redraws, rather than repeating itself:
+
+```text
+  the WSL utility VM still has the disk open; it lets go about a minute after
+  the last distribution stops
+  waiting for the disk ... 47s of 90s
+```
+
+If something else is still running the VM never idles out and no wait would
+help, so it does not wait at all — it **refuses** straight away, naming who is
+holding it:
 
 ```text
 error: C:\Users\example\...\ext4.vhdx is still open in docker-desktop,
@@ -65,6 +81,18 @@ yourself first
 ```
 
 Exit code 11.
+
+When *nothing* is running, the wait ran out on a VM that was still winding down,
+and telling you to stop distributions that are already stopped would be no help.
+That refusal says so instead:
+
+```text
+error: C:\Users\example\...\ext4.vhdx is still held by the WSL utility VM --
+nothing is running, so the VM is still winding down -- it releases the disk
+about a minute after the last distribution stops. Raise the wait with `wsldisk
+config set wsl.unlock_timeout_seconds 180`, or re-run with --shutdown to stop it
+now
+```
 
 `--shutdown` is what lets it proceed, and it is opt-in for a reason: the only
 way to release one disk is to stop **all** of them. Doing that silently would

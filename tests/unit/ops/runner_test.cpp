@@ -357,6 +357,7 @@ TEST_CASE("the null sink accepts everything and reports nothing", "[ops][runner]
     sink.step_started(0, step);
     sink.step_progress(wsldisk::DiskProgress{.current = 1, .total = 2});
     sink.message("ignored");
+    sink.status("ignored too");
     sink.step_finished(0, step);
 
     SUCCEED("the null sink swallowed every call");
