@@ -9,6 +9,7 @@ replaces them. A rule that depends on local configuration is not a rule.
 
 from __future__ import annotations
 
+import json
 import re
 from pathlib import Path
 
@@ -152,3 +153,59 @@ def test_every_same_document_link_fragment_resolves():
         "markdownlint MD051 will fail on these, and it only runs in CI here -- "
         "the npm proxy forbids markdownlint-cli2 locally.\n" + "\n".join(offenders)
     )
+
+
+PACKAGING_DIR = REPO_ROOT / "packaging"
+RELEASE_WORKFLOW = REPO_ROOT / ".github" / "workflows" / "release.yml"
+
+# `__VERSION__`, `__SHA256_X64__` -- the holes release.yml fills in before the
+# manifests are submitted to a package repository.
+PLACEHOLDER = re.compile(r"__[A-Z0-9_]+__")
+
+
+def winget_manifests() -> list[Path]:
+    return sorted((PACKAGING_DIR / "winget").glob("*.yaml"))
+
+
+def test_there_are_winget_manifests_to_check():
+    assert winget_manifests(), "no winget manifests found"
+
+
+def test_every_manifest_placeholder_is_substituted_by_the_release_workflow():
+    # The workflow refuses to publish a manifest with a surviving placeholder,
+    # so getting this wrong does not ship a broken package -- it fails the
+    # release, after the tag is pushed and the artifacts are signed, which is a
+    # miserable place to find out. Adding a placeholder to a manifest without
+    # teaching release.yml to fill it should fail here instead.
+    workflow = RELEASE_WORKFLOW.read_text(encoding="utf-8")
+    substituted = set(PLACEHOLDER.findall(workflow))
+
+    offenders = []
+    for manifest in winget_manifests():
+        for name in set(PLACEHOLDER.findall(manifest.read_text(encoding="utf-8"))):
+            if name not in substituted:
+                offenders.append(
+                    f"{manifest.relative_to(REPO_ROOT)}: {name} is never substituted"
+                )
+
+    assert not offenders, (
+        "release.yml has no sed expression for these placeholders.\n"
+        + "\n".join(offenders)
+    )
+
+
+def test_the_scoop_manifest_is_parseable_json_with_a_placeholder_version():
+    # release.yml rewrites this file with `json.load`, so a syntax error here
+    # only surfaces during a release. The placeholder version matters too: the
+    # substitution finds the URLs by replacing the literal `0.0.0`.
+    manifest = json.loads(
+        (PACKAGING_DIR / "scoop" / "wsldisk.json").read_text(encoding="utf-8")
+    )
+    assert manifest["version"] == "0.0.0", (
+        "the checked-in scoop manifest should carry the placeholder version; "
+        "release.yml substitutes the real one"
+    )
+    for architecture in ("64bit", "arm64"):
+        entry = manifest["architecture"][architecture]
+        assert "0.0.0" in entry["url"], f"{architecture} url has no version to substitute"
+        assert set(entry["hash"]) == {"0"}, f"{architecture} hash is not a placeholder"
