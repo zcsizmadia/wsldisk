@@ -151,7 +151,7 @@ TEST_CASE("relink writes the new location and starts the distribution", "[ops][r
     // that the distribution boots from the disk the registry now names.
     REQUIRE(machine.host.commands().size() == 1);
     CHECK(machine.host.commands().front().distribution == "Moved-Away");
-    CHECK(machine.host.commands().front().argv == std::vector<std::string>{"/bin/true"});
+    CHECK(machine.host.commands().front().argv == std::vector<std::string>{"/bin/sh", "-c", ":"});
 }
 
 TEST_CASE("relink keeps the extended-length form the distribution already used", "[ops][relink]") {
@@ -188,7 +188,7 @@ TEST_CASE("relink puts the registry back when the distribution will not start", 
     Machine machine;
     const Distro distro = machine.distro("Moved-Away");
     const std::wstring before = base_path_of(machine.registry, distro);
-    machine.host.on_command("/bin/true", WslCommandResult{.exit_code = 1});
+    machine.host.on_command("/bin/sh", WslCommandResult{.exit_code = 1});
 
     RelinkOperation operation = machine.relink("Moved-Away");
     const auto outcome = run(operation, machine.sink, RunOptions{});
@@ -304,14 +304,25 @@ TEST_CASE("relink changes nothing on a dry run", "[ops][relink]") {
     CHECK(base_path_of(machine.registry, distro) == LR"(D:\gone\wsl\Moved-Away)");
 }
 
-TEST_CASE("relink survives a running check it cannot make", "[ops][relink]") {
+TEST_CASE("relink refuses when it cannot tell whether the distribution is running", "[ops][relink]") {
+    // This used to pass, on the reasoning that the smoke test would find out
+    // anyway. It would not: if the distribution *is* running, the smoke test
+    // executes in the already-booted guest -- booted from the *old* disk -- and
+    // passes trivially. The registry would then point at a disk that was never
+    // validated, which is the exact failure this operation exists to prevent.
+    //
+    // `compact` can be relaxed about the same question because it has a second
+    // guard in `is_locked`. Relink has none, so this was the only one.
     Machine machine;
-    // wsl.exe not answering the "what is running" question is not a reason to
-    // refuse: the smoke test would find out anyway, and a machine with WSL
-    // half-installed is exactly the one needing a repair.
     machine.host.fail_running(
         wsldisk::Error{ErrorCode::Generic, "wsl.exe did not answer", "check WSL is installed"});
     RelinkOperation operation = machine.relink("Moved-Away");
 
-    CHECK(operation.plan().has_value());
+    const auto planned = operation.plan();
+
+    REQUIRE_FALSE(planned.has_value());
+    CHECK(planned.error().code == ErrorCode::Preflight);
+    CHECK(planned.error().message.find("cannot tell whether") != std::string::npos);
+    // Nothing was written on the way to refusing.
+    CHECK(machine.registry.writes().empty());
 }

@@ -411,7 +411,7 @@ TEST_CASE("compact --restart starts the distribution again", "[cli][compact]") {
     CHECK(code == exit_code_success);
     // fstrim, then the restart.
     REQUIRE(machine.host.commands().size() == 2);
-    CHECK(machine.host.commands()[1].argv == std::vector<std::string>{"/bin/true"});
+    CHECK(machine.host.commands()[1].argv == std::vector<std::string>{"/bin/sh", "-c", ":"});
 }
 
 TEST_CASE("compact --all reports a registry it cannot read", "[cli][compact]") {
@@ -457,7 +457,7 @@ TEST_CASE("compact.restart in the config restarts without the flag", "[cli][comp
     const auto& commands = machine.host.commands();
     const bool restarted = std::ranges::any_of(commands, [](const auto& invocation) {
         return invocation.distribution == "Ubuntu" && !invocation.argv.empty() &&
-               invocation.argv.front() == "/bin/true";
+               invocation.argv.front() == "/bin/sh";
     });
     CHECK(restarted);
 }
@@ -588,4 +588,17 @@ TEST_CASE("compact --file --json reports a compaction that failed as a target ob
     const nlohmann::json object = nlohmann::json::parse(out.str());
     CHECK(object.at("target") == docker_disk.string());
     CHECK(object.at("compacted") == false);
+}
+
+TEST_CASE("compact --all works when the host cannot say what is running", "[cli][compact]") {
+    // The running snapshot is taken to keep `--restart` honest under
+    // `--all --shutdown`. A host that cannot answer is not a reason to refuse to
+    // compact: it only means nothing gets restarted, which is what would have
+    // happened anyway.
+    Machine machine;
+    machine.host.fail_running(
+        wsldisk::Error{ErrorCode::Generic, "wsl.exe did not answer", "check WSL is installed"});
+    std::ostringstream out;
+
+    CHECK(machine.run(CompactCommandOptions{.all = true}, GlobalOptions{}, out) == exit_code_success);
 }

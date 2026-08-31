@@ -57,8 +57,23 @@ Result<Plan> RelinkOperation::plan() {
                     "nothing to do; `wsldisk info` shows where it points");
     }
 
+    // A running distribution must be refused, and unlike `compact` there is no
+    // second guard: `compact` falls back to `is_locked`, this had nothing.
+    //
+    // So a `running()` that fails is a refusal too. The old reasoning was that
+    // the smoke test would find out anyway, and it would not: if the
+    // distribution *is* running, the smoke test executes in the already-booted
+    // guest -- booted from the *old* disk -- and passes trivially. The registry
+    // would then point at a disk that was never validated, which is the exact
+    // thing this operation's header says it exists to prevent.
     const auto running = host_->running();
-    if (running.has_value() && std::ranges::find(*running, distro_.name) != running->end()) {
+    if (!running.has_value()) {
+        return fail(
+            ErrorCode::Preflight,
+            std::format("cannot tell whether {} is running: {}", distro_.name, running.error().to_string()),
+            std::format("run `wsl --terminate {}` and try again", distro_.name));
+    }
+    if (std::ranges::find(*running, distro_.name) != running->end()) {
         return fail(ErrorCode::DistroBusy, std::format("{} is running", distro_.name),
                     std::format("run `wsl --terminate {}` first", distro_.name));
     }
@@ -117,10 +132,17 @@ Result<Report> RelinkOperation::execute(ProgressSink& progress) {
     const StepPlan smoke{.description = std::format("start {} to check the new path works", distro_.name)};
     progress.step_started(1, smoke);
 
-    // The smoke test. `/bin/true` does nothing in the guest, which is the
-    // point: what is being tested is that the distribution boots from the disk
-    // the registry now names.
-    const std::vector<std::string> argv{"/bin/true"};
+    // The smoke test. It does nothing in the guest, which is the point: what is
+    // being tested is that the distribution boots from the disk the registry now
+    // names.
+    //
+    // `/bin/sh -c :`, not `/bin/true`. POSIX guarantees `/bin/sh`; it does not
+    // guarantee `/bin/true`, and NixOS-WSL ships without one. `wsl --exec` with
+    // a missing binary boots the distribution, fails the exec and returns
+    // non-zero -- indistinguishable here from a boot failure -- so relink used
+    // to roll back a correct repoint and tell those users to check a path that
+    // was right. It was not possible for them to relink at all.
+    const std::vector<std::string> argv{"/bin/sh", "-c", ":"};
     const auto started = host_->run_as_root(distro_.name, argv, std::chrono::seconds{60});
     if (!started.has_value()) {
         return std::unexpected(started.error());

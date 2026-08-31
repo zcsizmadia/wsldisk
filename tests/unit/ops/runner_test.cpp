@@ -128,7 +128,9 @@ TEST_CASE("a successful run plans, executes and verifies", "[ops][runner]") {
     CHECK(operation.verifies == 1);
     REQUIRE(outcome->report.has_value());
     CHECK(outcome->report->completed.size() == 3);
-    CHECK_FALSE(outcome->rolled_back);
+    // Nothing was undone. Asserted on the operation, because the outcome no
+    // longer carries a flag that no caller could read.
+    CHECK(operation.undone.empty());
     CHECK(progress.started == std::vector<std::size_t>{0, 1, 2});
     CHECK(progress.finished == std::vector<std::size_t>{0, 1, 2});
 }

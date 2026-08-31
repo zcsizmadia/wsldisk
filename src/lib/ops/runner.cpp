@@ -44,7 +44,6 @@ Result<RunOutcome> run(IOperation& operation, ProgressSink& progress, const RunO
     auto report = operation.execute(progress);
     if (!report.has_value()) {
         operation.rollback(progress);
-        outcome.rolled_back = true;
         return std::unexpected(report.error());
     }
     outcome.report = std::move(*report);

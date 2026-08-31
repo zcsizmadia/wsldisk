@@ -189,11 +189,20 @@ void render_outcome_json(const Outcome& outcome, std::ostream& out) {
                                                 const CompactCommandOptions& options,
                                                 const GlobalOptions& global, ops::ProgressSink& sink,
                                                 std::ostream& out) {
+    // Taken once, before anything is stopped. Under `--all --shutdown` the first
+    // target's shutdown stops every later one, so a per-target snapshot would
+    // make them all look as though they had never been running -- and
+    // `--restart` would skip them.
+    const auto running_before = services.host->running();
+
     std::vector<Outcome> outcomes;
     for (const model::Distro& distro : targets) {
         ops::CompactOperation operation{*services.disks, *services.filesystem,
                                         *services.host,  *services.clock,
                                         distro,          to_operation_options(options, services.config)};
+        if (running_before.has_value()) {
+            operation.set_running_before(*running_before);
+        }
         if (!global.dry_run) {
             outcomes.push_back(compact_one(operation, distro.name, global, sink));
             continue;

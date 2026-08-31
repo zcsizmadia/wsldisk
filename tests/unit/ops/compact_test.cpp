@@ -392,7 +392,7 @@ TEST_CASE("compact starts the distribution again when asked", "[ops][compact]") 
     REQUIRE(outcome.has_value());
     // fstrim, then the restart.
     REQUIRE(machine.host.commands().size() == 2);
-    CHECK(machine.host.commands()[1].argv == std::vector<std::string>{"/bin/true"});
+    CHECK(machine.host.commands()[1].argv == std::vector<std::string>{"/bin/sh", "-c", ":"});
 }
 
 TEST_CASE("compact does not restart a distribution that was not running", "[ops][compact]") {
@@ -617,4 +617,132 @@ TEST_CASE("compact reports no saving when only one end could be measured", "[ops
     // Verify has nothing to compare, and says so by passing rather than
     // inventing a failure.
     CHECK(operation.verify().has_value());
+}
+
+TEST_CASE("compact --shutdown still checks the disk was released", "[ops][compact]") {
+    // The check used to be skipped on exactly the path where the user has paid
+    // the highest price for it: every distribution and every container stopped.
+    // `wsl --shutdown` can exit 0 while the utility VM's handle lingers, and it
+    // can do nothing at all about a backup agent holding the file -- so the
+    // compaction failed at `open` with a raw virtual-disk error instead of a
+    // named refusal.
+    Machine machine;
+    machine.filesystem.lock_file(ubuntu_disk);
+    machine.host.set_running({"Ubuntu"});
+    CompactOperation operation{machine.disks, machine.filesystem,       machine.host,
+                               machine.clock, machine.distro("Ubuntu"), CompactOptions{.shutdown = true}};
+
+    REQUIRE(operation.plan().has_value());
+    const auto report = operation.execute(machine.sink);
+
+    REQUIRE_FALSE(report.has_value());
+    CHECK(report.error().code == ErrorCode::DistroBusy);
+    // And the remedy does not send them round the loop they just came out of.
+    CHECK(report.error().remedy.find("re-run with --shutdown") == std::string::npos);
+    CHECK(report.error().remedy.find("something else") != std::string::npos);
+}
+
+TEST_CASE("compact measures its baseline after the guest is quiet", "[ops][compact]") {
+    // `plan()` runs before the distribution is stopped and before an fstrim that
+    // is allowed ten minutes, so a guest write in between inflated the file and
+    // `verify()` reported "grew during compaction" for a compaction that worked.
+    // A build running inside the distribution was enough to do it.
+    Machine machine;
+    machine.compacts_to(ubuntu_disk, 14 * gigabyte, 9 * gigabyte);
+    CompactOperation operation{machine.disks, machine.filesystem, machine.host, machine.clock,
+                               machine.distro("Ubuntu")};
+
+    REQUIRE(operation.plan().has_value());
+    // The guest writes between planning and compacting, as a build would.
+    machine.set_size(ubuntu_disk, 20 * gigabyte, 9 * gigabyte);
+
+    REQUIRE(operation.execute(machine.sink).has_value());
+
+    // Measured at 20 GiB, not the 14 GiB seen at plan time, so the saving is
+    // real and `verify()` does not cry wolf.
+    REQUIRE(operation.size_before().has_value());
+    CHECK(*operation.size_before() == 20 * gigabyte);
+    CHECK(operation.verify().has_value());
+}
+
+TEST_CASE("compact restarts what it stopped even when the compaction fails", "[ops][compact]") {
+    // `--restart` used to be kept only on the success path, so a run that
+    // stopped the distribution and then failed left it stopped -- on exactly the
+    // run where the user did not get what they came for.
+    Machine machine;
+    machine.host.set_running({"Ubuntu"});
+    machine.disks.fail_compact(
+        wsldisk::Error{ErrorCode::Generic, "the compaction failed", "try again after a reboot"});
+    CompactOperation operation{machine.disks, machine.filesystem,       machine.host,
+                               machine.clock, machine.distro("Ubuntu"), CompactOptions{.restart = true}};
+
+    REQUIRE(operation.plan().has_value());
+    const auto report = operation.execute(machine.sink);
+
+    REQUIRE_FALSE(report.has_value());
+    const bool restarted = std::ranges::any_of(machine.host.commands(), [](const auto& invocation) {
+        return invocation.distribution == "Ubuntu" && !invocation.argv.empty() &&
+               invocation.argv.front() == "/bin/sh";
+    });
+    CHECK(restarted);
+}
+
+TEST_CASE("compact does not claim it restarted a distribution that would not boot", "[ops][compact]") {
+    // `interfaces.h` calls the exit code the only success signal that can be
+    // trusted, and the restart used to ignore it -- so a distribution that failed
+    // to come back up was reported as restarted, in the text and in the --json.
+    // That is the one signal that the compacted disk has a problem.
+    Machine machine;
+    machine.compacts_to(ubuntu_disk, 14 * gigabyte, 9 * gigabyte);
+    machine.host.set_running({"Ubuntu"});
+    machine.host.on_command("/bin/sh", wsldisk::WslCommandResult{.exit_code = 1});
+    CompactOperation operation{machine.disks, machine.filesystem,       machine.host,
+                               machine.clock, machine.distro("Ubuntu"), CompactOptions{.restart = true}};
+
+    REQUIRE(operation.plan().has_value());
+    const auto report = operation.execute(machine.sink);
+
+    REQUIRE(report.has_value());
+    const bool claimed = std::ranges::any_of(report->completed, [](const std::string& step) {
+        return step.find("start Ubuntu again") != std::string::npos;
+    });
+    CHECK_FALSE(claimed);
+}
+
+TEST_CASE("a failed compaction restarts nothing when --restart was not asked for", "[ops][compact]") {
+    // The other side of restart_if_asked: it must not start a distribution the
+    // user never asked it to start, even one it stopped.
+    Machine machine;
+    machine.host.set_running({"Ubuntu"});
+    machine.disks.fail_compact(
+        wsldisk::Error{ErrorCode::Generic, "the compaction failed", "try again after a reboot"});
+    CompactOperation operation{machine.disks, machine.filesystem, machine.host, machine.clock,
+                               machine.distro("Ubuntu")};
+
+    REQUIRE(operation.plan().has_value());
+    REQUIRE_FALSE(operation.execute(machine.sink).has_value());
+
+    const bool restarted = std::ranges::any_of(machine.host.commands(), [](const auto& invocation) {
+        return !invocation.argv.empty() && invocation.argv.front() == "/bin/sh";
+    });
+    CHECK_FALSE(restarted);
+}
+
+TEST_CASE("a failed compaction starts nothing that was not running", "[ops][compact]") {
+    // `--restart` puts back what was there. A distribution that was already
+    // stopped stays stopped, on the failure path as on the success path.
+    Machine machine;
+    machine.host.set_running({});
+    machine.disks.fail_compact(
+        wsldisk::Error{ErrorCode::Generic, "the compaction failed", "try again after a reboot"});
+    CompactOperation operation{machine.disks, machine.filesystem,       machine.host,
+                               machine.clock, machine.distro("Ubuntu"), CompactOptions{.restart = true}};
+
+    REQUIRE(operation.plan().has_value());
+    REQUIRE_FALSE(operation.execute(machine.sink).has_value());
+
+    const bool restarted = std::ranges::any_of(machine.host.commands(), [](const auto& invocation) {
+        return !invocation.argv.empty() && invocation.argv.front() == "/bin/sh";
+    });
+    CHECK_FALSE(restarted);
 }

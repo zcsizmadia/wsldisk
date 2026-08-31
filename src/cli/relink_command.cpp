@@ -9,6 +9,7 @@
 
 #include "app.h"
 #include "logger.h"
+#include "lookup.h"
 #include "model/distro.h"
 #include "model/text.h"
 #include "ops/relink.h"
@@ -53,9 +54,17 @@ int run_relink(const Services& services, const RelinkOptions& options, const Glo
 
     const model::Distro* distro = distros->find(options.name);
     if (distro == nullptr) {
-        return report(Error{ErrorCode::DistroNotFound, std::format("no distribution named {}", options.name),
-                            "run `wsldisk list` to see what is registered"},
-                      global, out, err);
+        // Through the shared helper, not hand-rolled here. `lookup.cpp` exists
+        // so the exit code, the wording and the "did you mean" are the same
+        // whichever command was typed -- and this was the one that drifted:
+        // `relink ubunto` gave a bare remedy while `trim ubunto` suggested
+        // Ubuntu.
+        std::vector<std::string> registered;
+        registered.reserve(distros->distros.size());
+        for (const model::Distro& known : distros->distros) {
+            registered.push_back(known.name);
+        }
+        return report(distro_not_found(options.name, registered), global, out, err);
     }
 
     ops::RelinkOperation operation{*services.registry, *services.filesystem, *services.host, *distro,
