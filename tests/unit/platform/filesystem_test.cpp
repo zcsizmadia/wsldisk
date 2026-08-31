@@ -290,24 +290,19 @@ TEST_CASE("exists reports a file it is not allowed to look at as present", "[pla
     CHECK(filesystem.exists(R"(C:\denied\ext4.vhdx)"));
 }
 
-TEST_CASE("exists reports a file that is genuinely absent as absent", "[platform][fs]") {
-    Win32Api api;
-    api.get_file_attributes = [](LPCWSTR) -> DWORD { return INVALID_FILE_ATTRIBUTES; };
-    api.get_last_error = []() -> DWORD { return ERROR_FILE_NOT_FOUND; };
-    const ScopedWin32Api scoped{api};
+TEST_CASE("exists treats every genuinely-absent code as absent", "[platform][fs]") {
+    // One per `case` label, so adding a code to the list without a test for it
+    // shows up as an uncovered branch rather than as nothing.
+    for (const DWORD code : {ERROR_FILE_NOT_FOUND, ERROR_PATH_NOT_FOUND, ERROR_INVALID_NAME,
+                             ERROR_BAD_NETPATH, ERROR_BAD_NET_NAME}) {
+        Win32Api api;
+        api.get_file_attributes = [](LPCWSTR) -> DWORD { return INVALID_FILE_ATTRIBUTES; };
+        api.get_last_error = [code]() -> DWORD { return code; };
+        const ScopedWin32Api scoped{api};
 
-    const Win32FileSystem filesystem;
+        const Win32FileSystem filesystem;
 
-    CHECK_FALSE(filesystem.exists(R"(C:\gone\ext4.vhdx)"));
-}
-
-TEST_CASE("exists treats a malformed path as absent rather than present", "[platform][fs]") {
-    Win32Api api;
-    api.get_file_attributes = [](LPCWSTR) -> DWORD { return INVALID_FILE_ATTRIBUTES; };
-    api.get_last_error = []() -> DWORD { return ERROR_INVALID_NAME; };
-    const ScopedWin32Api scoped{api};
-
-    const Win32FileSystem filesystem;
-
-    CHECK_FALSE(filesystem.exists("not a path"));
+        INFO("GetLastError() == " << code);
+        CHECK_FALSE(filesystem.exists(R"(C:\gone\ext4.vhdx)"));
+    }
 }

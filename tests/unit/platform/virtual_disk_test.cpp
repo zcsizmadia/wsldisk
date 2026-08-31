@@ -533,3 +533,40 @@ TEST_CASE("a compaction that will not stop is given up on rather than waited on 
     // It returned rather than spinning: bounded, not unbounded.
     CHECK(polls > 1);
 }
+
+TEST_CASE("the drain gives up when it cannot read progress either", "[platform][vdisk]") {
+    // Cancelling asks; this is the case where nothing can confirm it stopped.
+    // Returning is still right -- there is nothing further to try, and the
+    // alternative is spinning until the bounded loop runs out.
+    int polls = 0;
+
+    Win32Api api = opens_ok();
+    api.compact_virtual_disk = [](HANDLE, COMPACT_VIRTUAL_DISK_FLAG, PCOMPACT_VIRTUAL_DISK_PARAMETERS,
+                                  LPOVERLAPPED) -> DWORD { return ERROR_IO_PENDING; };
+    api.wait_for_single_object = [](HANDLE, DWORD) -> DWORD { return WAIT_TIMEOUT; };
+    api.get_virtual_disk_operation_progress = [&polls](HANDLE, LPOVERLAPPED,
+                                                       PVIRTUAL_DISK_PROGRESS progress) -> DWORD {
+        ++polls;
+        if (polls == 1) {
+            // The compaction loop's own poll: still running, so the callback is
+            // asked and says stop.
+            progress->OperationStatus = ERROR_IO_PENDING;
+            return ERROR_SUCCESS;
+        }
+        // The drain's poll, which cannot answer.
+        return ERROR_ACCESS_DENIED;
+    };
+    api.cancel_io_ex = [](HANDLE, LPOVERLAPPED) -> BOOL { return TRUE; };
+    const ScopedWin32Api scoped{api};
+
+    const Win32VirtualDisk disks;
+    const auto handle = disks.open(R"(C:\wsl\ext4.vhdx)");
+    REQUIRE(handle.has_value());
+
+    const auto status = (*handle)->compact([](const DiskProgress&) { return false; });
+
+    REQUIRE_FALSE(status.has_value());
+    CHECK(status.error().code == ErrorCode::Partial);
+    // It stopped asking rather than exhausting the bound.
+    CHECK(polls == 2);
+}
