@@ -41,6 +41,7 @@ untested code is not shipped.
 - `list` shows the test distro with correct path, version, virtual and actual sizes; `--json` schema validates.
 - `compact`: write 2 GB of random data in the guest, delete it, `compact`, assert actual size drops ≥ 1.5 GB; distro still boots; file checksums of remaining files unchanged.
 - `compact --dry-run` changes nothing (hash VHDX before/after).
+- `trim`: exits 0 against the fixture distro and leaves it running — it is the one reclaim step that must not shut anything down, which is what makes it safe to schedule. The fixture is busybox, so this is also what proves which `fstrim` option spellings a real guest takes.
 - `compact` against a running distro that refuses to terminate → exit code 11, nothing changed.
 - `grow --to`: guest `df` shows new size; `shrink --to`: refuses when data doesn't fit; succeeds otherwise; `e2fsck -n` clean.
 - `move` to another directory and to a VHD-backed second volume (created in CI with `New-VHD`/`diskpart`-free API); default user, GUID, flags preserved; source removed only after boot verification; simulated failure mid-copy → rollback leaves original intact and registry unchanged.

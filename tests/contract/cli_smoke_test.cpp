@@ -140,3 +140,21 @@ TEST_CASE("orphans --relink needs somewhere to point", "[contract][cli]") {
 
     CHECK(result.exit_code == 2);
 }
+
+TEST_CASE("the executable reaches the trim command", "[contract][cli]") {
+    // The `trim` quarter of the subcommand dispatch. A name that cannot exist,
+    // so nothing on this machine is trimmed by running the suite.
+    const ProcessOutput result = run_process(quoted_exe() + " trim wsldisk-no-such-distro");
+
+    INFO(result.output);
+    // 10 when the registry could be read and the name is not there, 3 when
+    // there is no WSL on this machine at all.
+    CHECK((result.exit_code == 10 || result.exit_code == 3));
+    CHECK(result.output.find("error:") != std::string::npos);
+}
+
+TEST_CASE("trim requires a distribution name", "[contract][cli]") {
+    const ProcessOutput result = run_process(quoted_exe() + " trim");
+
+    CHECK(result.exit_code == 2);
+}

@@ -21,7 +21,6 @@ using wsldisk::ErrorCode;
 using wsldisk::cli::gather_one;
 using wsldisk::cli::GlobalOptions;
 using wsldisk::cli::InfoOptions;
-using wsldisk::cli::nearest_names;
 using wsldisk::cli::NullLogger;
 using wsldisk::cli::render_details;
 using wsldisk::cli::render_details_json;
@@ -177,40 +176,6 @@ TEST_CASE("a name nothing resembles falls back to listing", "[cli][info]") {
 
     REQUIRE_FALSE(row.has_value());
     CHECK(row.error().remedy == "run `wsldisk list` to see what is registered");
-}
-
-TEST_CASE("suggestions are ordered closest first", "[cli][info]") {
-    const std::vector<std::string> registered{"Ubuntu24", "Ubuntu", "Alpine"};
-
-    const auto names = nearest_names("Ubunt", registered);
-
-    REQUIRE(names.size() == 2);
-    CHECK(names[0] == "Ubuntu");
-    CHECK(names[1] == "Ubuntu24");
-}
-
-TEST_CASE("a name that only shares a prefix is not suggested", "[cli][info]") {
-    // `Ubuntu-20.04` is seven edits from `Ubunt`. Offering it would be the tool
-    // guessing rather than correcting.
-    const std::vector<std::string> registered{"Ubuntu-20.04"};
-
-    CHECK(nearest_names("Ubunt", registered).empty());
-}
-
-TEST_CASE("suggestions ignore case", "[cli][info]") {
-    const std::vector<std::string> registered{"Ubuntu"};
-
-    CHECK(nearest_names("UBUNTU", registered) == std::vector<std::string>{"Ubuntu"});
-}
-
-TEST_CASE("nothing is suggested when nothing is close", "[cli][info]") {
-    const std::vector<std::string> registered{"Ubuntu"};
-
-    CHECK(nearest_names("zzzzzzzzzzzz", registered).empty());
-}
-
-TEST_CASE("suggestions from an empty registry are empty", "[cli][info]") {
-    CHECK(nearest_names("Ubuntu", {}).empty());
 }
 
 TEST_CASE("the info json object is a superset of the list line", "[cli][info]") {

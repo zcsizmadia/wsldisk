@@ -9,41 +9,13 @@
 
 #include "app.h"
 #include "logger.h"
+#include "lookup.h"
 #include "model/size.h"
 #include "model/text.h"
 #include "render.h"
 
 namespace wsldisk::cli {
 namespace {
-
-/// How different a name may be and still be offered as "did you mean". Beyond
-/// this a suggestion is noise: it stops looking like help and starts looking
-/// like the tool guessing.
-constexpr std::size_t suggestion_limit = 4;
-
-/// Levenshtein distance, case-insensitively.
-[[nodiscard]] std::size_t distance(std::string_view left, std::string_view right) {
-    const auto lower = [](char character) {
-        return static_cast<char>(std::tolower(static_cast<unsigned char>(character)));
-    };
-
-    std::vector<std::size_t> previous(right.size() + 1);
-    std::vector<std::size_t> current(right.size() + 1);
-    for (std::size_t index = 0; index <= right.size(); ++index) {
-        previous[index] = index;
-    }
-
-    for (std::size_t row = 1; row <= left.size(); ++row) {
-        current[0] = row;
-        for (std::size_t column = 1; column <= right.size(); ++column) {
-            const std::size_t substitution =
-                previous[column - 1] + (lower(left[row - 1]) == lower(right[column - 1]) ? 0 : 1);
-            current[column] = std::min({current[column - 1] + 1, previous[column] + 1, substitution});
-        }
-        previous.swap(current);
-    }
-    return previous[right.size()];
-}
 
 /// The three flags wslapi.h documents. Bit 3 is set on every distribution spike
 /// #4 measured but is not in any published header, so it is reported by number
@@ -121,23 +93,6 @@ private:
 
 }  // namespace
 
-std::vector<std::string> nearest_names(std::string_view name, const std::vector<std::string>& registered) {
-    std::vector<std::pair<std::size_t, std::string>> scored;
-    for (const std::string& candidate : registered) {
-        if (const std::size_t score = distance(name, candidate); score <= suggestion_limit) {
-            scored.emplace_back(score, candidate);
-        }
-    }
-    std::ranges::sort(scored);
-
-    std::vector<std::string> names;
-    names.reserve(scored.size());
-    for (const auto& [score, candidate] : scored) {
-        names.push_back(candidate);
-    }
-    return names;
-}
-
 Result<ListRow> gather_one(const Services& services, const InfoOptions& options, ILogger& logger) {
     const ListOptions list_options{.probe = options.probe};
     auto rows = gather(services, list_options, logger);
@@ -156,20 +111,7 @@ Result<ListRow> gather_one(const Services& services, const InfoOptions& options,
     for (const ListRow& row : *rows) {
         registered.push_back(row.distro.name);
     }
-
-    const std::vector<std::string> suggestions = nearest_names(options.name, registered);
-    std::string remedy = "run `wsldisk list` to see what is registered";
-    if (!suggestions.empty()) {
-        std::string names;
-        for (const std::string& candidate : suggestions) {
-            if (!names.empty()) {
-                names += ", ";
-            }
-            names += candidate;
-        }
-        remedy = std::format("did you mean {}? `wsldisk list` shows them all", names);
-    }
-    return fail(ErrorCode::DistroNotFound, std::format("no distribution named {}", options.name), remedy);
+    return std::unexpected(distro_not_found(options.name, registered));
 }
 
 void render_details(const ListRow& row, std::ostream& out) {
