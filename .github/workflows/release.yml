@@ -102,9 +102,15 @@ jobs:
           # disagreeing. Publishing `wsldisk-v0.2.0-x64.zip` containing a binary
           # that says 0.1.0 is the kind of thing a package manifest makes very
           # public.
-          $expected = '${{ inputs.tag || github.ref_name }}'.TrimStart('v')
+          # Only the core `X.Y.Z`. A semver pre-release or build suffix --
+          # `v0.1.0-rc.1` -- cannot appear in the binary, because CMake's
+          # `project(VERSION)` is numeric and has nowhere to put it. Comparing
+          # the whole tag made every release candidate fail this check, which is
+          # the first thing the first release candidate would have found.
+          $tag = '${{ inputs.tag || github.ref_name }}'.TrimStart('v')
+          $expected = ($tag -split '[-+]')[0]
           if ($reported -notmatch [regex]::Escape($expected)) {
-              throw ("tag $expected does not match the built version: $reported. " +
+              throw ("tag $tag does not match the built version: $reported. " +
                      "Update project(wsldisk VERSION ...) in CMakeLists.txt, or tag the version that is built.")
           }
           # `completion` is the one real command that needs no WSL, no registry
