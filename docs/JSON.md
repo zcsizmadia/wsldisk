@@ -137,6 +137,32 @@ object.
 every volume you have and no distribution claims it. `orphans --delete` refuses
 anything another process has open (exit 11), but the decision is still yours.
 
+## `relink`
+
+A single object. `orphans --relink <distro> --to <path>` is the same command and
+emits the same object.
+
+```json
+{"base_path":"D:\\wsl\\Ubuntu","distribution":"Ubuntu","relinked":true,"vhdx_path":"D:\\wsl\\Ubuntu\\ext4.vhdx"}
+```
+
+| Field | Type | Always? | Meaning |
+|---|---|---|---|
+| `distribution` | string | yes | The distribution that was repointed |
+| `vhdx_path` | string | yes | The `.vhdx` it now uses, as it was given on the command line |
+| `base_path` | string | yes | What was written to the registry's `BasePath` |
+| `relinked` | bool | yes | Always `true` on success; the exit code carries failure |
+
+`base_path` is not always `vhdx_path`'s parent spelled the obvious way. WSL
+stores that value in whichever prefix form the distribution already used, and
+`relink` preserves it: an entry written as `\\?\C:\...` stays extended-length.
+Docker Desktop's entry is one of those, and normalising it would be a change to
+a value Docker owns. Read `base_path` rather than deriving it.
+
+The distribution is started with `/bin/true` after the write, as a smoke test.
+If it does not boot the registry is put back and the command fails, so a
+`"relinked":true` means the new path was proved to work, not merely written.
+
 ## `config`
 
 A single object.

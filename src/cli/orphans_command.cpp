@@ -11,9 +11,7 @@
 #include "app.h"
 #include "logger.h"
 #include "model/size.h"
-#include "ops/relink.h"
-#include "ops/runner.h"
-#include "progress.h"
+#include "relink_command.h"
 #include "render.h"
 
 namespace wsldisk::cli {
@@ -159,57 +157,13 @@ int delete_orphans(const Services& services, const std::vector<model::Orphan>& o
     return exit_code_success;
 }
 
-namespace {
-
-[[nodiscard]] int run_relink(const Services& services, const OrphansOptions& options,
-                             const GlobalOptions& global, ILogger& logger, std::ostream& out,
-                             std::ostream& err) {
-    const auto distros = model::enumerate(*services.registry);
-    if (!distros.has_value()) {
-        return report(distros.error(), global, out, err);
-    }
-    for (const std::string& warning : distros->warnings) {
-        logger.warn(warning);
-    }
-
-    const model::Distro* distro = distros->find(options.relink_distro);
-    if (distro == nullptr) {
-        return report(
-            Error{ErrorCode::DistroNotFound, std::format("no distribution named {}", options.relink_distro),
-                  "run `wsldisk list` to see what is registered"},
-            global, out, err);
-    }
-
-    ops::RelinkOperation operation{*services.registry, *services.filesystem, *services.host, *distro,
-                                   std::filesystem::path{options.relink_path}};
-
-    ConsoleSink progress{out};
-    ops::NullSink quiet;
-    ops::ProgressSink& sink = global.json ? static_cast<ops::ProgressSink&>(quiet) : progress;
-
-    const auto outcome = ops::run(operation, sink, ops::RunOptions{.dry_run = global.dry_run});
-    if (!outcome.has_value()) {
-        return report(outcome.error(), global, out, err);
-    }
-
-    if (global.dry_run) {
-        out << "--dry-run: nothing was changed. It would have:\n";
-        for (const ops::StepPlan& step : outcome->plan.steps) {
-            out << "  " << step.description << '\n';
-        }
-        return exit_code_success;
-    }
-
-    out << options.relink_distro << " now points at " << options.relink_path << '\n';
-    return exit_code_success;
-}
-
-}  // namespace
-
 int run_orphans(const Services& services, const OrphansOptions& options, const GlobalOptions& global,
                 ILogger& logger, const Confirm& confirm, std::ostream& out, std::ostream& err) {
     if (options.relinking()) {
-        return run_relink(services, options, global, logger, out, err);
+        // The same command reached from the other side. `orphans` finds a disk
+        // and asks who should own it; `relink` knows the owner and the path.
+        return run_relink(services, RelinkOptions{.name = options.relink_distro, .path = options.relink_path},
+                          global, logger, out, err);
     }
 
     const auto orphans = scan_orphans(services, options, logger);

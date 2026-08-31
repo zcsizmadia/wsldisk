@@ -381,7 +381,10 @@ TEST_CASE("orphans --delete keeps going past a file it cannot delete", "[cli][or
     CHECK(machine.errors.str().find("cannot delete") != std::string::npos);
 }
 
-TEST_CASE("orphans --relink points a distribution at a disk", "[cli][orphans]") {
+TEST_CASE("orphans --relink is the relink command reached from the other side", "[cli][orphans]") {
+    // The behaviour lives in relink_command_test.cpp, next to the code. What
+    // this checks is the delegation: that `--relink` still runs the operation
+    // rather than falling through to the scan.
     Machine machine;
     machine.registry = hives::everything();
     machine.add_orphan(LR"(D:\moved\ext4.vhdx)", 3 * gigabyte);
@@ -392,90 +395,9 @@ TEST_CASE("orphans --relink points a distribution at a disk", "[cli][orphans]") 
 
     CHECK(code == exit_code_success);
     CHECK(out.str().find("Moved-Away now points at") != std::string::npos);
-    // The smoke test, and the write it protects.
+    // The smoke test ran, and nothing was scanned.
     CHECK(machine.host.commands().size() == 1);
-}
-
-TEST_CASE("orphans --relink lists what it would do on a dry run", "[cli][orphans]") {
-    Machine machine;
-    machine.registry = hives::everything();
-    machine.add_orphan(LR"(D:\moved\ext4.vhdx)", 3 * gigabyte);
-    std::ostringstream out;
-
-    const OrphansOptions options{.relink_distro = "Moved-Away", .relink_path = R"(D:\moved\ext4.vhdx)"};
-    const int code = machine.run(options, GlobalOptions{.dry_run = true}, out);
-
-    CHECK(code == exit_code_success);
-    CHECK(out.str().find("--dry-run: nothing was changed") != std::string::npos);
-    CHECK(machine.registry.writes().empty());
-}
-
-TEST_CASE("orphans --relink reports an unknown distribution", "[cli][orphans]") {
-    Machine machine;
-    std::ostringstream out;
-
-    const OrphansOptions options{.relink_distro = "nope", .relink_path = R"(D:\moved\ext4.vhdx)"};
-    const int code = machine.run(options, GlobalOptions{}, out);
-
-    CHECK(code == exit_code_for(ErrorCode::DistroNotFound));
-    CHECK(machine.errors.str().find("wsldisk list") != std::string::npos);
-}
-
-TEST_CASE("orphans --relink reports a registry it cannot read", "[cli][orphans]") {
-    Machine machine;
-    machine.registry.fail_with(
-        wsldisk::Error{ErrorCode::NeedsElevation, "cannot read", "run as the owning user"});
-    std::ostringstream out;
-
-    const OrphansOptions options{.relink_distro = "Ubuntu", .relink_path = R"(D:\moved\ext4.vhdx)"};
-    const int code = machine.run(options, GlobalOptions{}, out);
-
-    CHECK(code == exit_code_for(ErrorCode::NeedsElevation));
-}
-
-TEST_CASE("orphans --relink reports a distribution that will not start", "[cli][orphans]") {
-    Machine machine;
-    machine.registry = hives::everything();
-    machine.add_orphan(LR"(D:\moved\ext4.vhdx)", 3 * gigabyte);
-    machine.host.on_command("/bin/true", WslCommandResult{.exit_code = 1});
-    std::ostringstream out;
-
-    const OrphansOptions options{.relink_distro = "Moved-Away", .relink_path = R"(D:\moved\ext4.vhdx)"};
-    const int code = machine.run(options, GlobalOptions{}, out);
-
-    CHECK(code == exit_code_for(ErrorCode::Preflight));
-    CHECK(machine.errors.str().find("put back") != std::string::npos);
-}
-
-TEST_CASE("orphans --relink passes on the warnings enumeration produced", "[cli][orphans]") {
-    Machine machine;
-    machine.registry = hives::everything();
-    machine.add_orphan(LR"(D:\moved\ext4.vhdx)", 3 * gigabyte);
-    std::ostringstream out;
-
-    const OrphansOptions options{.relink_distro = "Moved-Away", .relink_path = R"(D:\moved\ext4.vhdx)"};
-    CHECK(machine.run(options, GlobalOptions{}, out) == exit_code_success);
-    CHECK(machine.errors.str().find("DistributionName") != std::string::npos);
-}
-
-TEST_CASE("orphans --relink reports progress unless the output is json", "[cli][orphans]") {
-    Machine machine;
-    machine.registry = hives::everything();
-    machine.add_orphan(LR"(D:\moved\ext4.vhdx)", 3 * gigabyte);
-
-    const OrphansOptions options{.relink_distro = "Moved-Away", .relink_path = R"(D:\moved\ext4.vhdx)"};
-
-    std::ostringstream plain;
-    CHECK(machine.run(options, GlobalOptions{}, plain) == exit_code_success);
-    CHECK(plain.str().find("point Moved-Away at") != std::string::npos);
-
-    Machine quiet;
-    quiet.registry = hives::everything();
-    quiet.add_orphan(LR"(D:\moved\ext4.vhdx)", 3 * gigabyte);
-    std::ostringstream json;
-    CHECK(quiet.run(options, GlobalOptions{.json = true}, json) == exit_code_success);
-    // Progress lines would corrupt a stdout something else is parsing.
-    CHECK(json.str().find("point Moved-Away at") == std::string::npos);
+    CHECK(out.str().find("orphan") == std::string::npos);
 }
 
 TEST_CASE("console_confirm reads the answer from the stream it was given", "[cli][orphans]") {

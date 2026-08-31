@@ -13,15 +13,15 @@
 namespace wsldisk::cli {
 namespace {
 
-/// Subcommands that take a distribution name as their first positional.
-///
-/// Asked of the tree rather than listed: a command whose first positional is
-/// named `distro` gets dynamic completion, and one that grows such an argument
-/// gets it without anyone remembering to come back here.
-[[nodiscard]] bool takes_a_distro(const CLI::App& command) {
-    return std::ranges::any_of(command.get_options(), [](const CLI::Option* option) {
-        return option->get_positional() && option->get_name(true, false) == "distro";
-    });
+/// The names of a command's positional arguments, in declaration order.
+[[nodiscard]] std::vector<std::string> positionals_of(const CLI::App& command) {
+    std::vector<std::string> names;
+    for (const CLI::Option* option : command.get_options()) {
+        if (option->get_positional()) {
+            names.push_back(option->get_name(true, false));
+        }
+    }
+    return names;
 }
 
 /// Every option name a command accepts, long and short, in declaration order.
@@ -48,6 +48,58 @@ namespace {
         commands.push_back(command);
     }
     return commands;
+}
+
+/// `command:index` for every positional named `kind`, e.g. `relink:1` for the
+/// path `relink` takes after the distribution.
+///
+/// Asked of the tree rather than listed: a command that grows a `distro` or a
+/// `path` argument gets completion for it without anyone remembering to come
+/// back here. The index matters -- `relink <distro> <path>` was the first
+/// command with two, and offering distribution names for the path is worse
+/// than offering nothing.
+[[nodiscard]] std::vector<std::string> positional_slots(const CLI::App& app, std::string_view kind) {
+    std::vector<std::string> slots;
+    for (const CLI::App* command : subcommands_of(app)) {
+        const std::vector<std::string> names = positionals_of(*command);
+        for (std::size_t index = 0; index < names.size(); ++index) {
+            if (names[index] == kind) {
+                slots.push_back(std::format("{}:{}", command->get_name(), index));
+            }
+        }
+    }
+    return slots;
+}
+
+/// The zsh completer for a positional, or empty when it has none.
+///
+/// The same two names `positional_slots` recognises, in the form zsh wants.
+[[nodiscard]] std::string_view zsh_completer_for(std::string_view positional) {
+    if (positional == "distro") {
+        return "_wsldisk_distros";
+    }
+    if (positional == "path") {
+        return "_files";
+    }
+    return {};
+}
+
+/// The `_arguments` specs for a command's positionals, e.g. `'1: :_files'`.
+///
+/// Empty when the command has no positionals worth completing, which is what
+/// lets the caller fall back to a command's own verbs.
+[[nodiscard]] std::string zsh_positional_specs(const CLI::App& command) {
+    std::string specs;
+    const std::vector<std::string> positionals = positionals_of(command);
+    for (std::size_t index = 0; index < positionals.size(); ++index) {
+        const std::string_view completer = zsh_completer_for(positionals[index]);
+        if (completer.empty()) {
+            continue;
+        }
+        // zsh numbers positionals from 1.
+        specs += std::format(" \\\n                        '{}: :{}'", index + 1, completer);
+    }
+    return specs;
 }
 
 /// Wraps text in single quotes for a POSIX shell, escaping any it contains.
@@ -136,26 +188,41 @@ namespace {
            "    }\n"
            "}\n\n";
 
-    out << "$script:WsldiskTakesDistro = @(";
-    std::vector<std::string> with_distro;
-    for (const CLI::App* command : subcommands_of(app)) {
-        if (takes_a_distro(*command)) {
-            with_distro.push_back(command->get_name());
-        }
-    }
-    out << powershell_list(with_distro) << ")\n\n";
+    // Filenames, asked of the shell at completion time. `relink` takes a
+    // path, and a completer that only knows distribution names would offer
+    // distribution names for it.
+    out << "function script:WsldiskPaths {\n"
+           "    param($prefix)\n"
+           "    try {\n"
+           "        Get-ChildItem -Path \"$prefix*\" -ErrorAction SilentlyContinue |\n"
+           "            ForEach-Object { $_.FullName }\n"
+           "    } catch {\n"
+           "        @()\n"
+           "    }\n"
+           "}\n\n";
+
+    out << "$script:WsldiskDistroSlots = @(" << powershell_list(positional_slots(app, "distro")) << ")\n";
+    out << "$script:WsldiskPathSlots = @(" << powershell_list(positional_slots(app, "path")) << ")\n\n";
 
     out << "Register-ArgumentCompleter -Native -CommandName wsldisk -ScriptBlock {\n"
            "    param($wordToComplete, $commandAst, $cursorPosition)\n\n"
            "    $words = @($commandAst.CommandElements | ForEach-Object { $_.ToString() })\n"
-           "    $command = $words | Select-Object -Skip 1 |\n"
-           "        Where-Object { -not $_.StartsWith('-') } | Select-Object -First 1\n\n"
+           "    $bare = @($words | Select-Object -Skip 1 | Where-Object { -not $_.StartsWith('-') })\n"
+           "    # The word being typed is already in the AST, so drop it: it is\n"
+           "    # not a positional that has been supplied.\n"
+           "    if ($bare.Count -gt 0 -and $bare[-1] -eq $wordToComplete) {\n"
+           "        $bare = @($bare | Select-Object -First ($bare.Count - 1))\n"
+           "    }\n"
+           "    $command = if ($bare.Count -gt 0) { $bare[0] } else { $null }\n"
+           "    $slot = \"${command}:$($bare.Count - 1)\"\n\n"
            "    $candidates = if (-not $command -or -not $script:WsldiskCommands.ContainsKey($command)) {\n"
            "        @($script:WsldiskCommands.Keys) + $script:WsldiskGlobal\n"
            "    } elseif ($wordToComplete.StartsWith('-')) {\n"
            "        $script:WsldiskCommands[$command]\n"
-           "    } elseif ($script:WsldiskTakesDistro -contains $command) {\n"
+           "    } elseif ($script:WsldiskDistroSlots -contains $slot) {\n"
            "        WsldiskDistros\n"
+           "    } elseif ($script:WsldiskPathSlots -contains $slot) {\n"
+           "        WsldiskPaths $wordToComplete\n"
            "    } else {\n"
            "        $script:WsldiskCommands[$command]\n"
            "    }\n\n"
@@ -184,24 +251,28 @@ namespace {
     out << "_wsldisk() {\n";
     out << "    local commands='" << joined(names, " ") << "'\n";
     out << "    local global='" << joined(flags_of(app), " ") << "'\n";
-    out << "    local with_distro='";
-    std::vector<std::string> with_distro;
-    for (const CLI::App* command : subcommands_of(app)) {
-        if (takes_a_distro(*command)) {
-            with_distro.push_back(command->get_name());
-        }
-    }
-    out << joined(with_distro, " ") << "'\n\n";
+    // `command:index` pairs rather than bare command names: which
+    // positional is being typed decides what to offer for it.
+    out << "    local distro_slots=' " << joined(positional_slots(app, "distro"), " ") << " '\n";
+    out << "    local path_slots=' " << joined(positional_slots(app, "path"), " ") << " '\n\n";
 
     out << "    local cur prev command word\n"
            "    cur=\"${COMP_WORDS[COMP_CWORD]}\"\n"
            "    command=''\n"
+           "    local positional=-1\n"
            "    for word in \"${COMP_WORDS[@]:1:COMP_CWORD-1}\"; do\n"
            "        case \"$word\" in\n"
            "            -*) ;;\n"
-           "            *) command=\"$word\"; break ;;\n"
+           "            *)\n"
+           "                if [[ -z \"$command\" ]]; then\n"
+           "                    command=\"$word\"\n"
+           "                else\n"
+           "                    positional=$((positional + 1))\n"
+           "                fi\n"
+           "                ;;\n"
            "        esac\n"
-           "    done\n\n";
+           "    done\n"
+           "    positional=$((positional + 1))\n\n";
 
     out << "    local flags=''\n"
            "    case \"$command\" in\n";
@@ -217,11 +288,16 @@ namespace {
            "    esac\n\n";
 
     // Asked for at completion time, not baked in.
-    out << "    if [[ \"$cur\" != -* ]] && [[ \" $with_distro \" == *\" $command \"* ]]; then\n"
+    out << "    local slot=\"$command:$positional\"\n"
+           "    if [[ \"$cur\" != -* ]] && [[ \"$distro_slots\" == *\" $slot \"* ]]; then\n"
            "        local distros\n"
            "        distros=$(wsldisk list --json 2>/dev/null |\n"
            "            sed -n 's/.*\"name\"[[:space:]]*:[[:space:]]*\"\\([^\"]*\\)\".*/\\1/p')\n"
            "        COMPREPLY=($(compgen -W \"$distros\" -- \"$cur\"))\n"
+           "        return\n"
+           "    fi\n\n"
+           "    if [[ \"$cur\" != -* ]] && [[ \"$path_slots\" == *\" $slot \"* ]]; then\n"
+           "        COMPREPLY=($(compgen -f -- \"$cur\"))\n"
            "        return\n"
            "    fi\n\n"
            "    COMPREPLY=($(compgen -W \"$flags\" -- \"$cur\"))\n"
@@ -277,8 +353,8 @@ namespace {
         for (const std::string& flag : flags_of(*command)) {
             out << " \\\n                        '" << flag << "'";
         }
-        if (takes_a_distro(*command)) {
-            out << " \\\n                        '1: :_wsldisk_distros'";
+        if (const std::string positionals = zsh_positional_specs(*command); !positionals.empty()) {
+            out << positionals;
         } else if (const std::vector<std::string> verbs = verbs_of(*command); !verbs.empty()) {
             // A command with verbs of its own -- `config get`, `config set` --
             // completes to those rather than to nothing.

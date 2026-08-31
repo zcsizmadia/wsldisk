@@ -32,6 +32,7 @@ wsldisk_add_test_suite(wsldisk_unit_tests unit
     cli/orphans_command_test.cpp
     cli/plumbing_test.cpp
     cli/progress_test.cpp
+    cli/relink_command_test.cpp
     cli/render_test.cpp
     cli/trim_command_test.cpp)
 

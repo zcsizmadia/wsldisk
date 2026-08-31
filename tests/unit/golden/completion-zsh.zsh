@@ -18,6 +18,7 @@ _wsldisk() {
         'list:List every registered distribution and its disk'
         'info:Show everything known about one distribution'
         'orphans:Find virtual disks that no distribution claims'
+        'relink:Point a distribution at a virtual disk that has been moved'
         'trim:Tell one distribution'\''s filesystem to release unused blocks'
         'compact:Reclaim the unused space in a virtual disk'
         'config:Show or change wsldisk'\''s settings'
@@ -84,6 +85,20 @@ _wsldisk() {
                         '--delete' \
                         '--relink' \
                         '--to'
+                    ;;
+                relink)
+                    _arguments \
+                        '--help' \
+                        '-h' \
+                        '--json' \
+                        '--verbose' \
+                        '-v' \
+                        '--yes' \
+                        '-y' \
+                        '--dry-run' \
+                        '--log' \
+                        '1: :_wsldisk_distros' \
+                        '2: :_files'
                     ;;
                 trim)
                     _arguments \
