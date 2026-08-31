@@ -88,6 +88,17 @@ integration suite imports.
   pinned actionlint and ruff binaries on demand, and reports each as pass, fail or
   skipped. markdownlint is skipped when the npm registry is unreachable.
 
+  **clang-tidy does not run on pull requests**, so this is where it happens
+  before merge. It takes about three minutes -- one process per file across the
+  cores. `-Jobs` sets how many at once; `-Changed` narrows it to the sources
+  that differ from `origin/main`, and falls back to everything when a header
+  changed, because a header change moves every translation unit that includes
+  it.
+
+  ```powershell
+  .\scripts\lint.ps1 -Changed
+  ```
+
   **clang-format and clang-tidy must be the LLVM version CI pins**, which the
   script checks and refuses to run without. Visual Studio ships its own copies
   several major versions behind and puts them on PATH first: its clang-format
@@ -96,10 +107,11 @@ integration suite imports.
   LLVM's `bin` ahead of Visual Studio's. The compile database clang-tidy needs is
   refreshed automatically when it no longer lists every source.
 
-- **Run AddressSanitizer before pushing.** It gates pull requests too, so this is
-  not the only place it happens -- but it finds what the ordinary builds cannot,
-  and finding it here costs a few minutes instead of a CI round trip. A dangling
-  capture that every other configuration happily passed, for instance:
+- **Run AddressSanitizer before pushing.** It gates pull requests as well, so
+  this is not the only place it happens -- but finding it here costs a few
+  minutes instead of a CI round trip, and it catches what the ordinary builds
+  cannot. A dangling capture that every other configuration happily passed, for
+  instance:
 
   ```powershell
   cmake --preset x64-asan

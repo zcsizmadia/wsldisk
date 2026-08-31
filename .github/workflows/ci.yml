@@ -62,17 +62,21 @@ jobs:
           python -m ruff check scripts/
           python -m pytest scripts/tests -q
 
-  # clang-format and clang-tidy need the pinned LLVM and a compile database,
-  # which means a vcpkg restore and a choco install before either can start.
+  # main and the weekly schedule only, because this job is slow for a reason
+  # parallelism cannot fix: clang-format and clang-tidy need the pinned LLVM and
+  # a compile database, which is a vcpkg restore and a choco install -- about six
+  # minutes before either tool starts. On a pull request that is the longest pole
+  # by a wide margin.
   #
-  # This used to be main-only, on the argument that both tools are pinned and
-  # `scripts/lint.ps1` runs the same pair locally. The argument did not survive
-  # contact: a clang-tidy slip left main red across four merges (#96), because a
-  # check that takes a quarter of an hour is one people stop running. It was
-  # slow for a fixable reason -- one process over every file, on one core -- so
-  # it now runs one process per file across them, and gates pull requests again.
+  # clang-tidy itself was the other half of the problem and is fixed: one process
+  # over all 38 files on one core, a quarter of an hour, so `scripts/lint.ps1`
+  # became a check people skipped and a slip left main red across four merges
+  # (#96). It now runs one process per file across the cores, which is under
+  # three minutes locally, so running it before pushing is a reasonable ask
+  # again -- see CONTRIBUTING.md. `asan` gates pull requests; this does not.
   lint-native:
     name: lint (clang-format, clang-tidy)
+    if: github.event_name != 'pull_request'
     runs-on: windows-2025
     timeout-minutes: 30
     steps:
