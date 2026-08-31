@@ -129,7 +129,7 @@ owner, not something CI should do on its own.
 ## M2 — `move`, `relink`, `grow`, `shrink`, `usage`, `clean`, `verify` (v0.2.0, ≈ 5 weeks)
 
 - [ ] `MoveOperation`: preflight (fs type, free space, lock), sparse-preserving copy with progress, hash `--verify`, registry repoint, start test, rollback, source cleanup; same-volume fast path
-- [ ] `wsldisk relink <distro> <path>`
+- [x] `wsldisk relink <distro> <path>` — the operation existed behind `orphans --relink`; promoted to a command of its own, and taught to honour `--json` ([#63](https://github.com/zcsizmadia/wsldisk/issues/63))
 - [ ] `GrowOperation`: `ResizeVirtualDisk` + `resize2fs`; detect partitioned disks and refuse
 - [ ] Helper-distro mechanism (tiny Alpine rootfs, on-demand import/remove) or `--via <distro>`
 - [ ] `ShrinkOperation`: fit check with margin, `e2fsck -f`, `resize2fs <size>`, `ResizeVirtualDisk` (safe flag only), compact, `e2fsck -n` verify

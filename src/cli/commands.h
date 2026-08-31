@@ -7,6 +7,7 @@
 #include "list_command.h"
 #include "options.h"
 #include "orphans_command.h"
+#include "relink_command.h"
 #include "trim_command.h"
 
 namespace CLI {
@@ -24,6 +25,7 @@ struct CommandOptions {
     ListOptions list;
     InfoOptions info;
     OrphansOptions orphans;
+    RelinkOptions relink;
     TrimOptions trim;
     CompactCommandOptions compact;
     ConfigOptions config;

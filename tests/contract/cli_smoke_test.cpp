@@ -141,6 +141,26 @@ TEST_CASE("orphans --relink needs somewhere to point", "[contract][cli]") {
     CHECK(result.exit_code == 2);
 }
 
+TEST_CASE("the executable reaches the relink command", "[contract][cli]") {
+    // The `relink` branch of the subcommand dispatch. A name that cannot exist,
+    // so the lookup fails before anything is written -- running the suite never
+    // repoints a distribution on this machine.
+    const ProcessOutput result = run_process(quoted_exe() + " relink wsldisk-no-such-distro " + quoted_exe());
+
+    INFO(result.output);
+    // 10 when the registry could be read and the name is not there, 3 when
+    // there is no WSL on this machine at all.
+    CHECK((result.exit_code == 10 || result.exit_code == 3));
+    CHECK(result.output.find("error:") != std::string::npos);
+}
+
+TEST_CASE("relink needs both a distribution and a path", "[contract][cli]") {
+    // Half an instruction is a usage error rather than a partial rewrite of the
+    // registry.
+    CHECK(run_process(quoted_exe() + " relink").exit_code == 2);
+    CHECK(run_process(quoted_exe() + " relink wsldisk-no-such-distro").exit_code == 2);
+}
+
 TEST_CASE("the executable reaches the trim command", "[contract][cli]") {
     // The `trim` quarter of the subcommand dispatch. A name that cannot exist,
     // so nothing on this machine is trimmed by running the suite.

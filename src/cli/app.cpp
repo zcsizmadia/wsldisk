@@ -25,6 +25,7 @@
 #include "platform/registry.h"
 #include "platform/virtual_disk.h"
 #include "platform/wsl_host.h"
+#include "relink_command.h"
 #include "render.h"
 #include "trim_command.h"
 #include "version.h"
@@ -80,7 +81,8 @@ int run(std::span<const std::string> args, std::ostream& out, std::ostream& err)
     }
 
     if (app.got_subcommand("list") || app.got_subcommand("info") || app.got_subcommand("orphans") ||
-        app.got_subcommand("trim") || app.got_subcommand("compact") || app.got_subcommand("config")) {
+        app.got_subcommand("trim") || app.got_subcommand("compact") || app.got_subcommand("config") ||
+        app.got_subcommand("relink")) {
         // The real implementations. Every one is an interface, which is what
         // lets the unit tests drive the same code with fakes.
         platform::Win32Registry registry;
@@ -108,6 +110,9 @@ int run(std::span<const std::string> args, std::ostream& out, std::ostream& err)
         }
         if (app.got_subcommand("trim")) {
             return run_trim(services, commands.trim, options, logger, out, err);
+        }
+        if (app.got_subcommand("relink")) {
+            return run_relink(services, commands.relink, options, logger, out, err);
         }
         if (app.got_subcommand("orphans")) {
             // The prompt reads the real console. Everything else about the

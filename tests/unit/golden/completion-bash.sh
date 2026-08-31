@@ -5,25 +5,35 @@
 #   source <(wsldisk completion bash)
 
 _wsldisk() {
-    local commands='list info orphans trim compact config completion'
+    local commands='list info orphans relink trim compact config completion'
     local global='--help -h --version -V --json --verbose -v --yes -y --dry-run --log'
-    local with_distro='info trim compact'
+    local distro_slots=' info:0 relink:0 trim:0 compact:0 '
+    local path_slots=' relink:1 '
 
     local cur prev command word
     cur="${COMP_WORDS[COMP_CWORD]}"
     command=''
+    local positional=-1
     for word in "${COMP_WORDS[@]:1:COMP_CWORD-1}"; do
         case "$word" in
             -*) ;;
-            *) command="$word"; break ;;
+            *)
+                if [[ -z "$command" ]]; then
+                    command="$word"
+                else
+                    positional=$((positional + 1))
+                fi
+                ;;
         esac
     done
+    positional=$((positional + 1))
 
     local flags=''
     case "$command" in
         list) flags='--help -h --json --verbose -v --yes -y --dry-run --log --probe' ;;
         info) flags='--help -h --json --verbose -v --yes -y --dry-run --log --probe' ;;
         orphans) flags='--help -h --json --verbose -v --yes -y --dry-run --log --scan --delete --relink --to' ;;
+        relink) flags='--help -h --json --verbose -v --yes -y --dry-run --log' ;;
         trim) flags='--help -h --json --verbose -v --yes -y --dry-run --log' ;;
         compact) flags='--help -h --json --verbose -v --yes -y --dry-run --log --all --file --no-trim --restart --shutdown' ;;
         config) flags='path get set edit --help -h --json --verbose -v --yes -y --dry-run --log' ;;
@@ -31,11 +41,17 @@ _wsldisk() {
         *) COMPREPLY=($(compgen -W "$commands $global" -- "$cur")); return ;;
     esac
 
-    if [[ "$cur" != -* ]] && [[ " $with_distro " == *" $command "* ]]; then
+    local slot="$command:$positional"
+    if [[ "$cur" != -* ]] && [[ "$distro_slots" == *" $slot "* ]]; then
         local distros
         distros=$(wsldisk list --json 2>/dev/null |
             sed -n 's/.*"name"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p')
         COMPREPLY=($(compgen -W "$distros" -- "$cur"))
+        return
+    fi
+
+    if [[ "$cur" != -* ]] && [[ "$path_slots" == *" $slot "* ]]; then
+        COMPREPLY=($(compgen -f -- "$cur"))
         return
     fi
 

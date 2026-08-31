@@ -138,11 +138,28 @@ has open, and asks before removing the rest — but the judgement is yours.
 
 ```text
 wsldisk orphans --delete                       # asks first; --yes skips the prompt
-wsldisk orphans --relink Ubuntu --to D:\wsl\Ubuntu\ext4.vhdx
 ```
 
-`--relink` points a distribution at a disk that moved, then starts it as a smoke
-test and puts the registry back if it does not boot.
+### Following a disk you already moved
+
+Moved an `ext4.vhdx` in Explorer and now the distribution will not start? WSL
+keeps the path in the registry, and `relink` rewrites it:
+
+```text
+> wsldisk relink Ubuntu D:\wsl\Ubuntu\ext4.vhdx
+point Ubuntu at D:\wsl\Ubuntu\ext4.vhdx
+start Ubuntu to check the new path works
+Ubuntu now points at D:\wsl\Ubuntu\ext4.vhdx
+```
+
+It starts the distribution afterwards as a smoke test and puts the registry back
+exactly as it was if it does not boot — a registry entry that parses but does
+not work is worse than one that is obviously wrong, because you would find out
+later and from WSL rather than from here.
+
+`wsldisk orphans --relink Ubuntu --to <path>` is the same command reached from
+the other direction, for when you are looking at the output of `orphans` and
+want to adopt one of the disks it found.
 
 ### Settings and shell completion
 

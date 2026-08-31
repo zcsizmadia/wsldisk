@@ -8,6 +8,7 @@ $script:WsldiskCommands = @{
     'list' = @('--help', '-h', '--json', '--verbose', '-v', '--yes', '-y', '--dry-run', '--log', '--probe')
     'info' = @('--help', '-h', '--json', '--verbose', '-v', '--yes', '-y', '--dry-run', '--log', '--probe')
     'orphans' = @('--help', '-h', '--json', '--verbose', '-v', '--yes', '-y', '--dry-run', '--log', '--scan', '--delete', '--relink', '--to')
+    'relink' = @('--help', '-h', '--json', '--verbose', '-v', '--yes', '-y', '--dry-run', '--log')
     'trim' = @('--help', '-h', '--json', '--verbose', '-v', '--yes', '-y', '--dry-run', '--log')
     'compact' = @('--help', '-h', '--json', '--verbose', '-v', '--yes', '-y', '--dry-run', '--log', '--all', '--file', '--no-trim', '--restart', '--shutdown')
     'config' = @('path', 'get', 'set', 'edit', '--help', '-h', '--json', '--verbose', '-v', '--yes', '-y', '--dry-run', '--log')
@@ -26,21 +27,40 @@ function script:WsldiskDistros {
     }
 }
 
-$script:WsldiskTakesDistro = @('info', 'trim', 'compact')
+function script:WsldiskPaths {
+    param($prefix)
+    try {
+        Get-ChildItem -Path "$prefix*" -ErrorAction SilentlyContinue |
+            ForEach-Object { $_.FullName }
+    } catch {
+        @()
+    }
+}
+
+$script:WsldiskDistroSlots = @('info:0', 'relink:0', 'trim:0', 'compact:0')
+$script:WsldiskPathSlots = @('relink:1')
 
 Register-ArgumentCompleter -Native -CommandName wsldisk -ScriptBlock {
     param($wordToComplete, $commandAst, $cursorPosition)
 
     $words = @($commandAst.CommandElements | ForEach-Object { $_.ToString() })
-    $command = $words | Select-Object -Skip 1 |
-        Where-Object { -not $_.StartsWith('-') } | Select-Object -First 1
+    $bare = @($words | Select-Object -Skip 1 | Where-Object { -not $_.StartsWith('-') })
+    # The word being typed is already in the AST, so drop it: it is
+    # not a positional that has been supplied.
+    if ($bare.Count -gt 0 -and $bare[-1] -eq $wordToComplete) {
+        $bare = @($bare | Select-Object -First ($bare.Count - 1))
+    }
+    $command = if ($bare.Count -gt 0) { $bare[0] } else { $null }
+    $slot = "${command}:$($bare.Count - 1)"
 
     $candidates = if (-not $command -or -not $script:WsldiskCommands.ContainsKey($command)) {
         @($script:WsldiskCommands.Keys) + $script:WsldiskGlobal
     } elseif ($wordToComplete.StartsWith('-')) {
         $script:WsldiskCommands[$command]
-    } elseif ($script:WsldiskTakesDistro -contains $command) {
+    } elseif ($script:WsldiskDistroSlots -contains $slot) {
         WsldiskDistros
+    } elseif ($script:WsldiskPathSlots -contains $slot) {
+        WsldiskPaths $wordToComplete
     } else {
         $script:WsldiskCommands[$command]
     }
