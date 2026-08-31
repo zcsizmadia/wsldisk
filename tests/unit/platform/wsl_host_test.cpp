@@ -626,3 +626,52 @@ TEST_CASE("terminate quotes an empty distribution name", "[platform][wsl]") {
 
     CHECK(process.command_line == LR"(wsl.exe --terminate "")");
 }
+
+TEST_CASE("a wsl.exe error on stderr is decoded from UTF-16", "[platform][wsl]") {
+    // Reported from a released binary: `wsldisk compact Ubuntu` while WSL could
+    // not start showed "...established connection failed because con", cut
+    // mid-word. `wsl --exec` passes the *guest's* streams through as UTF-8, but
+    // when wsl.exe cannot reach the VM it never runs the guest -- what lands on
+    // stderr is wsl.exe's own message, in UTF-16LE. A NUL after every character,
+    // twice the length it looked.
+    const std::wstring wide = L"A connection attempt failed because the connected party did not respond.";
+    std::string utf16le;
+    for (const wchar_t unit : wide) {
+        utf16le.push_back(static_cast<char>(static_cast<unsigned>(unit) & 0xFFU));
+        utf16le.push_back(static_cast<char>((static_cast<unsigned>(unit) >> 8U) & 0xFFU));
+    }
+
+    FakeProcess process;
+    process.exit_code = 1;
+    process.standard_error = utf16le;
+    const ScopedWin32Api scoped{table_for(process)};
+
+    const std::vector<std::string> argv{"/sbin/fstrim", "/"};
+    const WslExeHost host;
+    const auto result = host.run_as_root("Ubuntu", argv, 30s);
+
+    REQUIRE(result.has_value());
+    CHECK(result->standard_error ==
+          "A connection attempt failed because the connected party did not respond.");
+    // No NULs survive into the message a user reads.
+    CHECK(result->standard_error.find('\0') == std::string::npos);
+}
+
+TEST_CASE("the guest's own UTF-8 output is left alone", "[platform][wsl]") {
+    // The ordinary case, and the one that must not regress: a guest command's
+    // output has no NULs, so it is passed through untouched -- including
+    // non-ASCII, which a UTF-16 decode would mangle.
+    FakeProcess process;
+    process.standard_output = "/: 1080803397632 bytes trimmed\n";
+    // UTF-8 for the three kana of a Japanese name, to prove nothing re-decodes it.
+    process.standard_error = "\xE3\x83\x86\xE3\x82\xB9\xE3\x83\x88";
+    const ScopedWin32Api scoped{table_for(process)};
+
+    const std::vector<std::string> argv{"/sbin/fstrim", "-v", "/"};
+    const WslExeHost host;
+    const auto result = host.run_as_root("Ubuntu", argv, 30s);
+
+    REQUIRE(result.has_value());
+    CHECK(result->standard_output == "/: 1080803397632 bytes trimmed\n");
+    CHECK(result->standard_error == "\xE3\x83\x86\xE3\x82\xB9\xE3\x83\x88");
+}
