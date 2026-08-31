@@ -20,8 +20,9 @@ Moving a distro to another drive means `wsl --export` / `--import` and re-fixing
 Backups are full tarballs. Microsoft's sparse-VHD auto-reclaim is behind `--allow-unsafe` because
 it can corrupt data.
 
-Dozens of PowerShell scripts each solve one slice of this. `wsldisk` aims to be the single,
-tested, native tool that covers the whole lifecycle of a WSL2 disk.
+Plenty of PowerShell scripts solve one slice of this, and some solve their slice
+well — see [Prior art](#prior-art). `wsldisk` aims to be the single, tested,
+native tool that covers the whole lifecycle of a WSL2 disk.
 
 ## Usage
 
@@ -200,6 +201,41 @@ a flag that does not exist. Distribution names complete by asking
 Everything in [PLAN.md](PLAN.md) §4 that is not above: `shrink`, `grow`, `move`,
 `snapshot`/`restore`, `doctor`, `usage`, `clean`, `verify`, `mount`, `clone`,
 `migrate`, `rescue`, `schedule`. See [ROADMAP.md](ROADMAP.md) for the order.
+
+## Prior art
+
+Other people have solved parts of this, and the closest is
+[wslcompact](https://github.com/okibcn/wslcompact) — a PowerShell module that
+reclaims space by `wsl --export`ing a distribution and `--import`ing it back.
+
+The approaches differ in one decision, and it is worth understanding before
+picking either:
+
+| | wslcompact (export/import) | wsldisk (in place) |
+|---|---|---|
+| Free space needed | a full temporary copy of the rootfs | none |
+| Time | proportional to the data | seconds |
+| What is replaced | the disk **and** the registry entry | nothing but free blocks |
+| Recovers fragmented free space | yes — the file is rebuilt contiguous | only what `fstrim` can release |
+
+Rebuilding is the more thorough operation. It defragments, and it does not
+depend on discard working inside the guest. The costs are the temporary space,
+the time, and a new registry entry — which is why the export/import route has a
+reputation for meaning "and then re-fix your default user".
+
+Compacting in place is cheap enough to schedule. It reclaims what `fstrim`
+released and nothing more.
+
+**Neither needs administrator rights, and neither needs the Hyper-V module**, so
+both work on Windows Home where `Optimize-VHD` does not exist. That is a shared
+virtue rather than a difference, and it is worth saying plainly: the "you need
+Hyper-V to compact a VHDX" folklore is simply wrong.
+
+Two honest notes. wsldisk has no release yet — if you need to shrink a disk this
+afternoon, wslcompact is the tool that exists. And a rebuild reclaims space that
+in-place compaction cannot, which is why
+[whether to add one](https://github.com/zcsizmadia/wsldisk/issues/67) is an open
+question here rather than a settled no.
 
 ## Design principles
 
