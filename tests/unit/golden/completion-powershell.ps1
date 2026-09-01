@@ -8,6 +8,7 @@ $script:WsldiskCommands = @{
     'list' = @('--help', '-h', '--json', '--verbose', '-v', '--yes', '-y', '--dry-run', '--log', '--probe')
     'info' = @('--help', '-h', '--json', '--verbose', '-v', '--yes', '-y', '--dry-run', '--log', '--probe')
     'orphans' = @('--help', '-h', '--json', '--verbose', '-v', '--yes', '-y', '--dry-run', '--log', '--scan', '--delete', '--to', '--relink')
+    'move' = @('--help', '-h', '--keep-source', '--json', '--verbose', '-v', '--yes', '-y', '--dry-run', '--log')
     'relink' = @('--help', '-h', '--json', '--verbose', '-v', '--yes', '-y', '--dry-run', '--log')
     'trim' = @('--help', '-h', '--json', '--verbose', '-v', '--yes', '-y', '--dry-run', '--log')
     'compact' = @('--help', '-h', '--json', '--verbose', '-v', '--yes', '-y', '--dry-run', '--log', '--all', '--file', '--no-trim', '--restart', '--shutdown')
@@ -37,8 +38,8 @@ function script:WsldiskPaths {
     }
 }
 
-$script:WsldiskDistroSlots = @('info:0', 'relink:0', 'trim:0', 'compact:0')
-$script:WsldiskPathSlots = @('relink:1')
+$script:WsldiskDistroSlots = @('info:0', 'move:0', 'relink:0', 'trim:0', 'compact:0')
+$script:WsldiskPathSlots = @('move:1', 'relink:1')
 
 Register-ArgumentCompleter -Native -CommandName wsldisk -ScriptBlock {
     param($wordToComplete, $commandAst, $cursorPosition)

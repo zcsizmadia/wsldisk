@@ -101,9 +101,9 @@ private:
 
 TEST_CASE("a sparse file copies to a sparse file on real NTFS", "[contract][filesystem]") {
     // The failure this exists to catch: a copy that walks the logical length
-    // rather than the allocated ranges turns a 2 MiB file into a 64 MiB one.
-    // A WSL disk is the same shape three orders of magnitude larger -- twelve
-    // gigabytes of data inside a terabyte of virtual size.
+    // rather than the allocated ranges turns a 2 MiB file into a 64 MiB one. A
+    // `.vhdx` WSL created sparse is the same shape, and would arrive intact but
+    // considerably larger than it left.
     const TempPath source;
     const TempPath destination;
     if (!make_sparse_file(source.path(), 64 * megabyte, {0, 32 * megabyte}, megabyte)) {

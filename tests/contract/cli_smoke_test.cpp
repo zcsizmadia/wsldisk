@@ -156,6 +156,26 @@ TEST_CASE("the executable reaches the relink command", "[contract][cli]") {
     CHECK(result.output.find("error:") != std::string::npos);
 }
 
+TEST_CASE("the executable reaches the move command", "[contract][cli]") {
+    // The `move` branch of the subcommand dispatch. A name that cannot exist, so
+    // the lookup fails before anything is copied -- running the suite never
+    // relocates a disk on this machine.
+    const ProcessOutput result =
+        run_process(quoted_exe() + " move wsldisk-no-such-distro wsldisk-no-such-directory");
+
+    INFO(result.output);
+    // 10 when the registry could be read and the name is not there, 3 when
+    // there is no WSL on this machine at all.
+    CHECK((result.exit_code == 10 || result.exit_code == 3));
+    CHECK(result.output.find("error:") != std::string::npos);
+}
+
+TEST_CASE("move needs both a distribution and a destination", "[contract][cli]") {
+    // Half an instruction is a usage error rather than a copy to nowhere.
+    CHECK(run_process(quoted_exe() + " move").exit_code == 2);
+    CHECK(run_process(quoted_exe() + " move wsldisk-no-such-distro").exit_code == 2);
+}
+
 TEST_CASE("relink needs both a distribution and a path", "[contract][cli]") {
     // Half an instruction is a usage error rather than a partial rewrite of the
     // registry.
@@ -272,6 +292,9 @@ TEST_CASE("every command's --json stdout is empty or parses, however it ends", "
         "trim wsldisk-no-such-distro --json",
         "trim wsldisk-no-such-distro --json --dry-run",
         "trim --json",  // missing positional
+        "move wsldisk-no-such-distro wsldisk-no-such-directory --json",
+        "move wsldisk-no-such-distro wsldisk-no-such-directory --json --dry-run",
+        "move --json",  // missing positionals
         "relink wsldisk-no-such-distro wsldisk-no-such-file --json",
         "relink wsldisk-no-such-distro wsldisk-no-such-file --json --dry-run",
         "relink --json",  // missing positionals

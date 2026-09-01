@@ -22,6 +22,7 @@
 #include "logger.h"
 #include "model/config.h"
 #include "model/text.h"
+#include "move_command.h"
 #include "options.h"
 #include "orphans_command.h"
 #include "platform/clock.h"
@@ -99,7 +100,7 @@ int run(std::span<const std::string> args, std::ostream& out, std::ostream& err)
 
     if (app.got_subcommand("list") || app.got_subcommand("info") || app.got_subcommand("orphans") ||
         app.got_subcommand("trim") || app.got_subcommand("compact") || app.got_subcommand("config") ||
-        app.got_subcommand("relink")) {
+        app.got_subcommand("relink") || app.got_subcommand("move")) {
         // The real implementations. Every one is an interface, which is what
         // lets the unit tests drive the same code with fakes.
         platform::Win32Registry registry;
@@ -135,6 +136,9 @@ int run(std::span<const std::string> args, std::ostream& out, std::ostream& err)
         }
         if (app.got_subcommand("relink")) {
             return run_relink(services, commands.relink, options, logger, out, err);
+        }
+        if (app.got_subcommand("move")) {
+            return run_move(services, commands.move, options, logger, out, err);
         }
         if (app.got_subcommand("orphans")) {
             // The prompt reads the real console. Everything else about the

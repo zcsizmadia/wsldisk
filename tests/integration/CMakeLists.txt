@@ -12,6 +12,7 @@ wsldisk_add_test_suite(wsldisk_integration_tests integration
     fixture_test.cpp
     integration_fixture.cpp
     integration_fixture.h
+    move_integration_test.cpp
     relink_integration_test.cpp
     trim_integration_test.cpp
     wsl_presence_test.cpp)
