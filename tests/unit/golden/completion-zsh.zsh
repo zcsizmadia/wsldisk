@@ -135,6 +135,8 @@ _wsldisk() {
                         '--help' \
                         '-h' \
                         '--top' \
+                        '--by-directory' \
+                        '--depth' \
                         '--json' \
                         '--verbose' \
                         '-v' \

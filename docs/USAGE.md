@@ -63,8 +63,54 @@ trees, databases, whatever you keep in there.
 A large gap is not a problem to fix. It means the space is going to things
 wsldisk has no catalogue entry for, which is what a working machine looks like.
 
-`usage --by-directory` will break that gap down into the largest directories;
-it is [#69](https://github.com/zcsizmadia/wsldisk/issues/69).
+`--by-directory` breaks that gap down.
+
+## `--by-directory`
+
+The catalogue only knows what someone has written an entry for. This walks the
+whole guest and reports the largest directories, whatever they are:
+
+```text
+SIZE       DIRECTORY     OF WHICH KNOWN  LARGEST KNOWN
+4.2 GiB    /var          4.0 GiB         docker storage
+3.5 GiB    /home         36 B            user cache (/home/example/.cache)
+2.9 GiB    /var/lib      2.9 GiB         docker storage
+2.2 GiB    /usr          -               -
+1.2 GiB    /usr/lib      -               -
+975.4 MiB  /var/log      975.4 MiB       logs
+```
+
+**The two tables overlap on purpose, and adding them together would be wrong.**
+The catalogue table is a selection; this one is the whole guest. `of which known`
+is the bridge: how much of each row the first table already showed you.
+
+So `/var` at 4.2 GiB with 4.0 GiB known is a directory you have already seen
+explained. `/usr` at 2.2 GiB with nothing known is where the catalogue has no
+opinion, and `/home` at 3.5 GiB with 36 B known is almost entirely your own
+files.
+
+An earlier version of this printed only the label, and `/home` read as "already
+shown as user cache" — which claimed a 3.5 GiB directory was accounted for by 36
+bytes. The number is what stops the column lying.
+
+### `--depth`
+
+How far down it goes. `/var/lib` is depth 2, which is the default: deep enough to
+separate `/var/lib/docker` from `/var/log`, shallow enough that the answer is a
+page rather than a filesystem.
+
+```text
+wsldisk usage Ubuntu --by-directory --depth 3
+```
+
+Only meaningful with `--by-directory`, so it is refused on its own rather than
+silently ignored. One to eight.
+
+### It is a second walk
+
+`--by-directory` runs `du` over the whole filesystem, which on a large guest is
+minutes on top of what `usage` already costs. Nobody pays for it unless they ask,
+which is why it is a flag rather than the default.
 
 ## The catalogue
 

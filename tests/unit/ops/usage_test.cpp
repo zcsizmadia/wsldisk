@@ -3,6 +3,7 @@
 #include <catch2/catch_test_macros.hpp>
 
 #include <algorithm>
+#include <format>
 #include <string>
 #include <vector>
 
@@ -18,6 +19,9 @@ using wsldisk::model::Distro;
 using wsldisk::model::enumerate;
 using wsldisk::ops::home_directories;
 using wsldisk::ops::parse_du_line;
+using wsldisk::ops::parse_du_listing;
+using wsldisk::ops::path_depth;
+using wsldisk::ops::UsageDirectory;
 using wsldisk::ops::UsageEntry;
 using wsldisk::ops::UsageOperation;
 using wsldisk::ops::UsageOptions;
@@ -42,6 +46,14 @@ constexpr std::uint64_t megabyte = 1024ULL * 1024;
     result.exit_code = 0;
     result.standard_output = "Filesystem 1B-blocks Used Available Use% Mounted on\n/dev/sdc 1099511627776 " +
                              std::to_string(used) + " " + std::to_string(available) + " 1% /\n";
+    return result;
+}
+
+/// A whole `du -bx -d N /` listing.
+[[nodiscard]] WslCommandResult listing_says(std::string_view text) {
+    WslCommandResult result;
+    result.exit_code = 0;
+    result.standard_output = std::string{text};
     return result;
 }
 
@@ -351,6 +363,238 @@ TEST_CASE("top keeps the largest entries", "[ops][usage]") {
     // The total still counts everything found, not just what is shown: a
     // `--top 2` that changed the arithmetic would be lying about the rest.
     CHECK(report->counted == 3 * gigabyte + 3 * megabyte);
+}
+
+TEST_CASE("path depth counts the separators", "[ops][usage]") {
+    CHECK(path_depth("/") == 0);
+    CHECK(path_depth("/var") == 1);
+    CHECK(path_depth("/var/lib") == 2);
+    CHECK(path_depth("/var/lib/docker") == 3);
+}
+
+TEST_CASE("a du listing is every line that measures something", "[ops][usage]") {
+    const std::vector<UsageDirectory> found = parse_du_listing(
+        "4096\t/var/log\n"
+        "du: cannot read directory '/proc/1': Permission denied\n"
+        "8192\t/var/lib\n"
+        "\n"
+        "12288\t/var\n");
+
+    REQUIRE(found.size() == 3);
+    CHECK(found[0].path == "/var/log");
+    CHECK(found[0].bytes == 4096);
+    CHECK(found[0].depth == 2);
+    CHECK(found[2].path == "/var");
+    CHECK(found[2].depth == 1);
+}
+
+TEST_CASE("a du listing tolerates a trailing slash", "[ops][usage]") {
+    // `du` does not add one, but a path that carried it would break every
+    // containment check, which compares the separator after a prefix.
+    const std::vector<UsageDirectory> found = parse_du_listing("4096\t/var/log/\n");
+
+    REQUIRE(found.size() == 1);
+    CHECK(found[0].path == "/var/log");
+}
+
+TEST_CASE("a du listing of the root alone keeps it", "[ops][usage]") {
+    // Dropping `/` is the operation's job, not the parser's: a parser that
+    // silently discarded a line would be lying about what du said.
+    const std::vector<UsageDirectory> found = parse_du_listing("4096\t/\n");
+
+    REQUIRE(found.size() == 1);
+    CHECK(found[0].depth == 0);
+}
+
+TEST_CASE("by-directory reports the largest directories", "[ops][usage]") {
+    Machine machine;
+    machine.host.on_command_for("/usr/bin/du", "-d", listing_says("2000\t/usr\n1000\t/var\n5000\t/\n"));
+
+    const auto report = machine.usage("Ubuntu", UsageOptions{.by_directory = true}).measure(ignore);
+
+    REQUIRE(report.has_value());
+    REQUIRE(report->directories.size() == 2);
+    CHECK(report->directories[0].path == "/usr");
+    CHECK(report->directories[0].bytes == 2000);
+    CHECK(report->directories[1].path == "/var");
+}
+
+TEST_CASE("by-directory leaves the root out", "[ops][usage]") {
+    // `/` is the whole disk, which `guest_used` already says. A row repeating it
+    // as the largest directory answers nothing.
+    Machine machine;
+    machine.host.on_command_for("/usr/bin/du", "-d", listing_says("9999\t/\n1000\t/var\n"));
+
+    const auto report = machine.usage("Ubuntu", UsageOptions{.by_directory = true}).measure(ignore);
+
+    REQUIRE(report.has_value());
+    REQUIRE(report->directories.size() == 1);
+    CHECK(report->directories[0].path == "/var");
+}
+
+TEST_CASE("by-directory says how much of a directory the catalogue explained", "[ops][usage]") {
+    // A label alone was actively misleading: a 3.5 GiB /home holding a 36-byte
+    // ~/.cache read as "already shown as user cache", which claims the whole
+    // directory was covered when almost none of it was.
+    Machine machine;
+    machine.host.on_command_for("/usr/bin/du", "/var/lib/docker", du_says(3 * gigabyte, "/var/lib/docker"));
+    machine.host.on_command_for(
+        "/usr/bin/du", "-d", listing_says(std::format("{}\t/var\n{}\t/home\n", 4 * gigabyte, 3 * gigabyte)));
+
+    const auto report = machine.usage("Ubuntu", UsageOptions{.by_directory = true}).measure(ignore);
+
+    REQUIRE(report.has_value());
+    REQUIRE(report->directories.size() == 2);
+    const UsageDirectory& var = report->directories[0];
+    CHECK(var.path == "/var");
+    CHECK(var.attributed_bytes == 3 * gigabyte);
+    CHECK(var.attributed_to == "docker storage");
+    // Nothing in the catalogue is under /home here, so nothing is claimed.
+    const UsageDirectory& home = report->directories[1];
+    CHECK(home.path == "/home");
+    CHECK(home.attributed_bytes == 0);
+    CHECK(home.attributed_to.empty());
+}
+
+TEST_CASE("attribution counts nested catalogue entries once", "[ops][usage]") {
+    // `/var/log/journal` is inside `/var/log`. Adding both would attribute more
+    // to `/var` than `/var` contains.
+    Machine machine;
+    machine.host.on_command_for("/usr/bin/du", "/var/log", du_says(900 * megabyte, "/var/log"));
+    machine.host.on_command_for("/usr/bin/du", "/var/log/journal",
+                                du_says(800 * megabyte, "/var/log/journal"));
+    machine.host.on_command_for("/usr/bin/du", "-d",
+                                listing_says(std::format("{}\t/var\n", 1000 * megabyte)));
+
+    const auto report = machine.usage("Ubuntu", UsageOptions{.by_directory = true}).measure(ignore);
+
+    REQUIRE(report.has_value());
+    REQUIRE(report->directories.size() == 1);
+    CHECK(report->directories[0].attributed_bytes == 900 * megabyte);
+    CHECK(report->directories[0].attributed_to == "logs");
+}
+
+TEST_CASE("a directory that is itself a catalogue entry is fully attributed", "[ops][usage]") {
+    Machine machine;
+    machine.host.on_command_for("/usr/bin/du", "/var/log", du_says(900 * megabyte, "/var/log"));
+    machine.host.on_command_for("/usr/bin/du", "-d",
+                                listing_says(std::format("{}\t/var/log\n", 900 * megabyte)));
+
+    const auto report = machine.usage("Ubuntu", UsageOptions{.by_directory = true}).measure(ignore);
+
+    REQUIRE(report.has_value());
+    REQUIRE(report->directories.size() == 1);
+    CHECK(report->directories[0].attributed_bytes == 900 * megabyte);
+}
+
+TEST_CASE("by-directory honours the top limit", "[ops][usage]") {
+    Machine machine;
+    machine.host.on_command_for("/usr/bin/du", "-d", listing_says("3000\t/usr\n2000\t/var\n1000\t/home\n"));
+
+    const auto report = machine.usage("Ubuntu", UsageOptions{.top = 2, .by_directory = true}).measure(ignore);
+
+    REQUIRE(report.has_value());
+    CHECK(report->directories.size() == 2);
+}
+
+TEST_CASE("by-directory asks du for the depth it was given", "[ops][usage]") {
+    Machine machine;
+    machine.host.on_command_for("/usr/bin/du", "-d", listing_says("1000\t/var\n"));
+
+    REQUIRE(
+        machine.usage("Ubuntu", UsageOptions{.by_directory = true, .depth = 4}).measure(ignore).has_value());
+
+    bool checked = false;
+    for (const auto& call : machine.host.commands()) {
+        if (call.argv.size() > 4 && call.argv[2] == "-d") {
+            CHECK(call.argv[3] == "4");
+            CHECK(call.argv[4] == "/");
+            checked = true;
+        }
+    }
+    CHECK(checked);
+}
+
+TEST_CASE("a du that could not read everything is a note, not a failure", "[ops][usage]") {
+    // On a running guest this is normal: /proc entries come and go while du
+    // walks. What it did read is still worth reporting.
+    Machine machine;
+    WslCommandResult partial = listing_says("1000\t/var\n");
+    partial.exit_code = 1;
+    machine.host.on_command_for("/usr/bin/du", "-d", partial);
+
+    const auto report = machine.usage("Ubuntu", UsageOptions{.by_directory = true}).measure(ignore);
+
+    REQUIRE(report.has_value());
+    CHECK(report->directories.size() == 1);
+    REQUIRE(report->notes.size() == 1);
+    CHECK(report->notes[0].find("could not read every directory") != std::string::npos);
+}
+
+TEST_CASE("a du that said nothing usable is a note", "[ops][usage]") {
+    Machine machine;
+    machine.host.on_command_for("/usr/bin/du", "-d", listing_says("du: /: Permission denied\n"));
+
+    const auto report = machine.usage("Ubuntu", UsageOptions{.by_directory = true}).measure(ignore);
+
+    REQUIRE(report.has_value());
+    CHECK(report->directories.empty());
+    REQUIRE_FALSE(report->notes.empty());
+    CHECK(report->notes.back().find("no directories") != std::string::npos);
+}
+
+TEST_CASE("a by-directory walk that cannot be run is reported", "[ops][usage]") {
+    // Named by its argument rather than by call number: the catalogue runs one
+    // `du` per entry, so counting calls would move this onto a different one
+    // every time `caches.toml` grows a line.
+    Machine machine;
+    machine.host.fail_command_for(
+        "/usr/bin/du", "-d", wsldisk::Error{ErrorCode::Generic, "wsl.exe stopped answering", "try again"});
+
+    const auto report = machine.usage("Ubuntu", UsageOptions{.by_directory = true}).measure(ignore);
+
+    REQUIRE_FALSE(report.has_value());
+}
+
+TEST_CASE("a top larger than the directories found changes nothing", "[ops][usage]") {
+    Machine machine;
+    machine.host.on_command_for("/usr/bin/du", "-d", listing_says("1000\t/var\n"));
+
+    const auto report =
+        machine.usage("Ubuntu", UsageOptions{.top = 10, .by_directory = true}).measure(ignore);
+
+    REQUIRE(report.has_value());
+    CHECK(report->directories.size() == 1);
+}
+
+TEST_CASE("attribution ignores catalogue entries outside the directory", "[ops][usage]") {
+    // `~/.cache` is nowhere near `/var`, and counting it toward `/var` would
+    // claim the catalogue explained bytes that are somewhere else entirely.
+    Machine machine;
+    machine.host.on_command_for("/usr/bin/du", "/var/lib/docker", du_says(3 * gigabyte, "/var/lib/docker"));
+    machine.host.on_command_for("/usr/bin/du", "/home/example/.cache",
+                                du_says(500 * megabyte, "/home/example/.cache"));
+    machine.host.on_command_for("/usr/bin/du", "-d", listing_says("4000000000\t/var\n"));
+
+    const auto report = machine.usage("Ubuntu", UsageOptions{.by_directory = true}).measure(ignore);
+
+    REQUIRE(report.has_value());
+    REQUIRE(report->directories.size() == 1);
+    // The docker storage only. The home cache is not under /var.
+    CHECK(report->directories[0].attributed_bytes == 3 * gigabyte);
+}
+
+TEST_CASE("without the flag there is no directory breakdown", "[ops][usage]") {
+    // It is a second walk of the whole filesystem, which is minutes on a large
+    // guest. Nobody pays for that unless they asked.
+    Machine machine;
+    const auto report = machine.usage().measure(ignore);
+
+    REQUIRE(report.has_value());
+    CHECK(report->directories.empty());
+    for (const auto& call : machine.host.commands()) {
+        CHECK(std::ranges::find(call.argv, std::string{"-d"}) == call.argv.end());
+    }
 }
 
 TEST_CASE("usage refuses a WSL1 distribution", "[ops][usage]") {

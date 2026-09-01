@@ -136,6 +136,7 @@ owner, not something CI should do on its own.
 - [ ] `wsldisk mount` / `unmount` wrappers (read-only default)
 - [ ] `wsldisk verify <distro>` (VHDX metadata + `e2fsck -n`, exit 6 on errors)
 - [x] `wsldisk usage <distro>` with curated cache catalogue (`data/caches.toml`) ([#109](https://github.com/zcsizmadia/wsldisk/issues/109))
+- [x] `wsldisk usage <distro> --by-directory` ([#69](https://github.com/zcsizmadia/wsldisk/issues/69))
 - [ ] `wsldisk clean <distro>` per-category flags, `--dry-run`, `--compact` chaining; never outside catalogue paths
 - [ ] `wsldisk default-user <distro> [name|uid]`
 - [ ] `wsldisk set-sparse <distro> on|off` with caveat gate and post-off compact

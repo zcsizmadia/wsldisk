@@ -22,6 +22,10 @@ struct UsageCommandOptions {
     std::string name;
     /// Show at most this many entries. Zero means all of them.
     std::size_t top = 0;
+    /// Also break the guest down by directory, not just by catalogue entry.
+    bool by_directory = false;
+    /// How deep that breakdown goes. `/var/lib` is depth 2.
+    std::size_t depth = 2;
 };
 
 /// Reports where the space inside a distribution went.

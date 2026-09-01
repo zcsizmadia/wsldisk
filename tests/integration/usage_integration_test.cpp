@@ -164,6 +164,72 @@ TEST_CASE("usage says which path it is measuring", "[integration]") {
     CHECK(announced.size() > 5);
 }
 
+TEST_CASE("usage by directory walks a real guest", "[integration]") {
+    // The flag combination `du -bx -d N` has to work on whatever `du` the guest
+    // ships. Alpine's is busybox, which spells the depth `-d` and does not accept
+    // `--max-depth` at all -- exactly the kind of thing a fake cannot tell you.
+    if (!ready()) {
+        return;
+    }
+
+    ScratchDistro distro{"usagedirs"};
+    REQUIRE(distro.valid());
+    REQUIRE(distro.boots());
+
+    const Win32Registry registry;
+    const WslExeHost host;
+    const auto found = registered(registry, distro.name());
+    REQUIRE(found.has_value());
+
+    const auto report = UsageOperation{host, *found, UsageOptions{.by_directory = true}}.measure(ignore);
+    if (!report.has_value()) {
+        FAIL("usage --by-directory failed: " << report.error().to_string());
+    }
+
+    REQUIRE_FALSE(report->directories.empty());
+    // `/` is the whole disk and is left out; everything reported sits below it.
+    for (const auto& directory : report->directories) {
+        INFO(directory.path);
+        CHECK(directory.depth >= 1);
+        CHECK(directory.depth <= 2);
+        CHECK(directory.path.starts_with("/"));
+        CHECK(directory.bytes > 0);
+        // Nothing can be attributed more than it holds.
+        CHECK(directory.attributed_bytes <= directory.bytes);
+    }
+    CHECK(std::ranges::is_sorted(
+        report->directories, [](const auto& left, const auto& right) { return left.bytes > right.bytes; }));
+}
+
+TEST_CASE("a deeper walk reports deeper directories", "[integration]") {
+    if (!ready()) {
+        return;
+    }
+
+    ScratchDistro distro{"usagedepth"};
+    REQUIRE(distro.valid());
+    REQUIRE(distro.boots());
+
+    const Win32Registry registry;
+    const WslExeHost host;
+    const auto found = registered(registry, distro.name());
+    REQUIRE(found.has_value());
+
+    const auto shallow =
+        UsageOperation{host, *found, UsageOptions{.by_directory = true, .depth = 1}}.measure(ignore);
+    const auto deep =
+        UsageOperation{host, *found, UsageOptions{.by_directory = true, .depth = 3}}.measure(ignore);
+    REQUIRE(shallow.has_value());
+    REQUIRE(deep.has_value());
+
+    for (const auto& directory : shallow->directories) {
+        INFO(directory.path);
+        CHECK(directory.depth == 1);
+    }
+    // A deeper walk sees everything the shallow one did, and more.
+    CHECK(deep->directories.size() > shallow->directories.size());
+}
+
 TEST_CASE("usage leaves the guest alone", "[integration]") {
     // The point of the command being read-only. If it ever grew a step that
     // wrote, this is what would notice.
