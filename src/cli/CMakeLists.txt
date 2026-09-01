@@ -30,6 +30,8 @@ add_library(wsldisk_cli_lib STATIC
     preflight.h
     progress.cpp
     progress.h
+    move_command.cpp
+    move_command.h
     relink_command.cpp
     relink_command.h
     render.cpp

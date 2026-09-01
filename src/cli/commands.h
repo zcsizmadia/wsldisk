@@ -5,6 +5,7 @@
 #include "config_command.h"
 #include "info_command.h"
 #include "list_command.h"
+#include "move_command.h"
 #include "options.h"
 #include "orphans_command.h"
 #include "relink_command.h"
@@ -25,6 +26,7 @@ struct CommandOptions {
     ListOptions list;
     InfoOptions info;
     OrphansOptions orphans;
+    MoveOptions move;
     RelinkOptions relink;
     TrimOptions trim;
     CompactCommandOptions compact;

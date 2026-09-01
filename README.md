@@ -141,6 +141,23 @@ has open, and asks before removing the rest — but the judgement is yours.
 wsldisk orphans --delete                       # asks first; --yes skips the prompt
 ```
 
+### Moving a disk to another drive
+
+WSL's own answer is `wsl --export` and `wsl --import`, which loses the default
+user, the flags and the GUID, and rewrites the whole filesystem to do it. `move`
+moves the file and repoints the registry, keeping all of it:
+
+```text
+> wsldisk move Ubuntu D:\WSL
+Ubuntu now lives at D:\WSL\ext4.vhdx (12.0 GiB)
+```
+
+The original is deleted only after the distribution has been seen to boot from
+the copy, and a failure before that puts everything back. Within one volume it is
+a rename, so no bytes move at all. Across volumes the copy preserves the disk's
+holes, which matters on the machines where WSL creates it sparse. See
+[docs/MOVE.md](docs/MOVE.md).
+
 ### Following a disk you already moved
 
 Moved an `ext4.vhdx` in Explorer and now the distribution will not start? WSL

@@ -464,9 +464,8 @@ Status Win32FileSystem::copy_file_sparse(
 
 Status Win32FileSystem::rename(const std::filesystem::path& from, const std::filesystem::path& to) {
     // No MOVEFILE_COPY_ALLOWED: across volumes Windows would fall back to a copy
-    // that does not preserve the holes, which for a VHDX is the difference
-    // between moving twelve gigabytes and writing a terabyte. Let it fail and
-    // let the caller copy properly.
+    // that does not preserve the holes, filling them in on a disk WSL created
+    // sparse. Let it fail, and let the caller copy properly.
     if (win32().move_file_ex(from.c_str(), to.c_str(), 0) == FALSE) {
         return std::unexpected(error_from_win32(win32().get_last_error(),
                                                 std::format("rename {} to {}", from.string(), to.string())));

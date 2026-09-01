@@ -141,6 +141,29 @@ object.
 every volume you have and no distribution claims it. `orphans --delete` refuses
 anything another process has open (exit 11), but the decision is still yours.
 
+## `move`
+
+A single object.
+
+```json
+{"base_path":"D:\\WSL","distribution":"Ubuntu","kept_source":false,"moved":true,"renamed":false,"same_volume":false,"size_on_disk":12884901888,"vhdx_path":"D:\\WSL\\ext4.vhdx"}
+```
+
+| Field | Type | Always? | Meaning |
+|---|---|---|---|
+| `distribution` | string | yes | The distribution that was moved |
+| `vhdx_path` | string | yes | Where its disk is now |
+| `base_path` | string | yes | What was written to the registry's `BasePath` |
+| `moved` | bool | yes | Always `true` on success; the exit code carries failure |
+| `renamed` | bool | yes | Whether the disk was renamed rather than copied |
+| `same_volume` | bool | yes | Whether both paths are on one volume |
+| `kept_source` | bool | yes | Whether `--keep-source` left the original in place |
+| `size_on_disk` | number | when measured | What the disk occupied, in bytes |
+
+`renamed` is worth branching on: a rename is instant and a copy takes as long as
+the disk is big. It is not simply `same_volume`, because `--keep-source` asks for
+the original to stay and a rename cannot leave it behind.
+
 ## `relink`
 
 A single object. `orphans --relink <distro> --to <path>` is the same command and

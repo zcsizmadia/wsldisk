@@ -238,9 +238,9 @@ bool always_continue(std::uint64_t, std::uint64_t) {
 }  // namespace
 
 TEST_CASE("a sparse copy writes the allocated ranges and leaves the holes alone", "[platform][copy]") {
-    // The whole point. A WSL disk's logical length is its virtual size -- a
-    // 12 GiB Ubuntu inside a 1 TiB VHDX -- so a copy that walks the length
-    // instead of the ranges writes a terabyte to move twelve gigabytes.
+    // The whole point. A `.vhdx` WSL created sparse has real holes in it, and a
+    // copy that walks the logical length instead of the ranges fills them in --
+    // landing a disk that works but occupies more than the one it came from.
     Disk state;
     make_source(state, 8 * kilobyte,
                 {AllocatedRange{.offset = 0, .length = kilobyte},
@@ -403,8 +403,8 @@ TEST_CASE("a copy refuses a destination that took only part of a write", "[platf
 
 TEST_CASE("rename asks for a rename and nothing else", "[platform][copy]") {
     // Deliberately not MOVEFILE_COPY_ALLOWED: across volumes Windows would copy
-    // without preserving the holes, which for a VHDX is the difference between
-    // moving twelve gigabytes and writing a terabyte.
+    // without preserving the holes, filling them in on a disk WSL created
+    // sparse.
     DWORD asked = 0xFFFF;
     Win32Api api;
     api.move_file_ex = [&asked](LPCWSTR, LPCWSTR, DWORD flags) -> BOOL {

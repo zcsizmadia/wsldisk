@@ -43,6 +43,8 @@ add_library(wsldisk_lib STATIC
     ops/compact.h
     ops/operation.cpp
     ops/operation.h
+    ops/move.cpp
+    ops/move.h
     ops/relink.cpp
     ops/relink.h
     ops/runner.cpp

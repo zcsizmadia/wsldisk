@@ -128,7 +128,7 @@ owner, not something CI should do on its own.
 
 ## M2 — `move`, `relink`, `grow`, `shrink`, `usage`, `clean`, `verify` (v0.2.0, ≈ 5 weeks)
 
-- [ ] `MoveOperation`: preflight (fs type, free space, lock), sparse-preserving copy with progress, hash `--verify`, registry repoint, start test, rollback, source cleanup; same-volume fast path
+- [x] `MoveOperation`: preflight (fs type, free space, running), sparse-preserving copy with progress, registry repoint, start test, rollback, source cleanup; same-volume fast path ([#106](https://github.com/zcsizmadia/wsldisk/issues/106)). `--verify` full-hash comparison is still to come
 - [x] `wsldisk relink <distro> <path>` — the operation existed behind `orphans --relink`; promoted to a command of its own, and taught to honour `--json` ([#63](https://github.com/zcsizmadia/wsldisk/issues/63))
 - [ ] `GrowOperation`: `ResizeVirtualDisk` + `resize2fs`; detect partitioned disks and refuse
 - [ ] Helper-distro mechanism (tiny Alpine rootfs, on-demand import/remove) or `--via <distro>`
@@ -145,7 +145,7 @@ owner, not something CI should do on its own.
 - [ ] Contract tests: `ResizeVirtualDisk` grow/shrink-safe on temp VHDX; sparse-preserving copy on real NTFS; FAT/exFAT refusal
 - [ ] Integration tests for move (cross-volume via VHD-backed second volume in CI), relink failure rollback, grow, shrink fit-refusal and success with `e2fsck -n`
 - [ ] `release.yml` extended: winget (`wingetcreate`) and scoop bucket PRs
-- [ ] `docs/MOVE.md`, `docs/RESIZE.md`
+- [x] `docs/MOVE.md`; `docs/RESIZE.md` still to come
 
 **Exit criteria:** Full disk lifecycle (compact/grow/shrink/move) without touching `diskpart`, PowerShell or `wsl --export`.
 

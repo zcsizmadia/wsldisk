@@ -293,11 +293,13 @@ public:
 
     /// Copies a file, keeping the holes.
     ///
-    /// Not `CopyFileEx`. A WSL disk is a sparse file whose logical length is its
-    /// *virtual* size -- a 12 GiB Ubuntu inside a 1 TiB VHDX -- and a copy that
-    /// does not understand that writes a terabyte of zeroes to move twelve
-    /// gigabytes. So the destination is created sparse and only the source's
-    /// allocated ranges are written; the holes are left as holes.
+    /// Not `CopyFileEx`. A `.vhdx` grows as it fills, so its logical length is
+    /// roughly its current size rather than the virtual capacity recorded inside
+    /// it -- but WSL 2.5+ creates the file sparse on some machines, and a copy
+    /// that walked the logical length would fill those holes in and land a
+    /// noticeably larger disk. So the destination is created sparse and only the
+    /// source's allocated ranges are written; the holes are left as holes. On a
+    /// file that is not sparse this copies it whole, which costs nothing.
     ///
     /// `progress` is called with bytes copied so far and the total to copy,
     /// counting only real bytes. Returning false asks the copy to stop, which

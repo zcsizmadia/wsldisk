@@ -11,6 +11,7 @@ wsldisk_add_test_suite(wsldisk_unit_tests unit
     model/text_test.cpp
     model/wsl_output_test.cpp
     ops/compact_test.cpp
+    ops/move_test.cpp
     ops/relink_test.cpp
     ops/runner_test.cpp
     ops/trim_test.cpp
@@ -30,6 +31,7 @@ wsldisk_add_test_suite(wsldisk_unit_tests unit
     cli/info_command_test.cpp
     cli/list_command_test.cpp
     cli/lookup_test.cpp
+    cli/move_command_test.cpp
     cli/orphans_command_test.cpp
     cli/plumbing_test.cpp
     cli/progress_test.cpp

@@ -58,12 +58,23 @@ namespace {
 /// back here. The index matters -- `relink <distro> <path>` was the first
 /// command with two, and offering distribution names for the path is worse
 /// than offering nothing.
+[[nodiscard]] bool names_a_path(std::string_view positional) {
+    // `move <distro> <destination>` names its second argument for what it means
+    // rather than for what it is. Completing it as a path is still the right
+    // answer, so the kinds are listed here rather than assumed to be one word.
+    return positional == "path" || positional == "destination";
+}
+
+[[nodiscard]] bool is_kind(std::string_view positional, std::string_view kind) {
+    return kind == "path" ? names_a_path(positional) : positional == kind;
+}
+
 [[nodiscard]] std::vector<std::string> positional_slots(const CLI::App& app, std::string_view kind) {
     std::vector<std::string> slots;
     for (const CLI::App* command : subcommands_of(app)) {
         const std::vector<std::string> names = positionals_of(*command);
         for (std::size_t index = 0; index < names.size(); ++index) {
-            if (names[index] == kind) {
+            if (is_kind(names[index], kind)) {
                 slots.push_back(std::format("{}:{}", command->get_name(), index));
             }
         }
@@ -78,7 +89,7 @@ namespace {
     if (positional == "distro") {
         return "_wsldisk_distros";
     }
-    if (positional == "path") {
+    if (names_a_path(positional)) {
         return "_files";
     }
     return {};
