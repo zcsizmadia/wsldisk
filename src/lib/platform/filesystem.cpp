@@ -5,9 +5,14 @@
 // FSCTL_QUERY_ALLOCATED_RANGES is one of them.
 #include <winioctl.h>
 
+#include <algorithm>
 #include <array>
+#include <cctype>
 #include <cstddef>
+#include <cwctype>
 #include <format>
+#include <functional>
+#include <numeric>
 #include <ranges>
 #include <span>
 #include <string>
@@ -25,6 +30,110 @@ namespace {
 /// Joins the high/low halves Win32 hands back for 64-bit file sizes.
 [[nodiscard]] std::uint64_t combine(DWORD high, DWORD low) noexcept {
     return (static_cast<std::uint64_t>(high) << 32) | low;
+}
+
+/// How much a sparse copy moves per read/write pair.
+///
+/// One megabyte: large enough that the per-call overhead disappears against the
+/// I/O, small enough that a cancelled copy stops promptly and that the buffer is
+/// not worth worrying about. It also matches the VHDX block size, so a chunk
+/// rarely straddles two blocks.
+constexpr std::size_t copy_chunk_bytes = std::size_t{1024} * 1024;
+
+/// Moves a handle's file pointer to an absolute offset.
+[[nodiscard]] Status seek(HANDLE file, std::uint64_t offset, const std::filesystem::path& path) {
+    LARGE_INTEGER distance{};
+    distance.QuadPart = static_cast<LONGLONG>(offset);
+    if (win32().set_file_pointer_ex(file, distance, nullptr, FILE_BEGIN) == FALSE) {
+        return std::unexpected(error_from_win32(win32().get_last_error(),
+                                                std::format("seek in {} to {}", path.string(), offset)));
+    }
+    return {};
+}
+
+/// The handles and paths one range copy needs.
+///
+/// A struct rather than nine parameters: the copy loop moved out of
+/// `copy_file_sparse` to keep that function readable, and passing its whole
+/// world through an argument list would have traded one problem for another.
+struct CopyJob {
+    HANDLE source = nullptr;
+    HANDLE destination = nullptr;
+    std::span<std::byte> buffer;
+    const std::filesystem::path* from = nullptr;
+    const std::filesystem::path* to = nullptr;
+    /// Allocated bytes in the whole file, for the progress denominator.
+    std::uint64_t total = 0;
+    /// Allocated bytes copied so far, across every range.
+    std::uint64_t copied = 0;
+};
+
+/// Gives a file its final logical length before anything is written into it.
+///
+/// On a sparse file this costs nothing: the length is metadata and the holes
+/// stay holes. It is what makes the copy the same size as the original even
+/// though only the allocated ranges are written.
+[[nodiscard]] Status resize(HANDLE file, std::uint64_t length, const std::filesystem::path& path) {
+    if (const Status sought = seek(file, length, path); !sought.has_value()) {
+        return sought;
+    }
+    if (win32().set_end_of_file(file) == FALSE) {
+        return std::unexpected(error_from_win32(
+            win32().get_last_error(), std::format("set the length of {} to {}", path.string(), length)));
+    }
+    return {};
+}
+
+/// Copies one allocated range, a chunk at a time.
+///
+/// Seeks both handles for every chunk rather than relying on the pointers having
+/// been left where the last read finished: the ranges are not contiguous, and a
+/// copy that assumed they were would write the second island over the hole after
+/// the first.
+[[nodiscard]] Status copy_range(CopyJob& job, const AllocatedRange& range,
+                                const std::function<bool(std::uint64_t, std::uint64_t)>& progress) {
+    std::uint64_t offset = range.offset;
+    const std::uint64_t end = range.offset + range.length;
+    while (offset < end) {
+        const auto chunk = static_cast<DWORD>(std::min<std::uint64_t>(end - offset, job.buffer.size()));
+        if (const Status sought = seek(job.source, offset, *job.from); !sought.has_value()) {
+            return sought;
+        }
+        if (const Status sought = seek(job.destination, offset, *job.to); !sought.has_value()) {
+            return sought;
+        }
+
+        DWORD read = 0;
+        if (win32().read_file(job.source, job.buffer.data(), chunk, &read, nullptr) == FALSE) {
+            return std::unexpected(
+                error_from_win32(win32().get_last_error(), std::format("read {}", job.from->string())));
+        }
+        // A short read inside a range the filesystem just said was allocated
+        // means the file changed underneath us. Carrying on would write a copy
+        // that is quietly not the original.
+        if (read == 0) {
+            return fail(ErrorCode::Generic, std::format("{} ended earlier than expected", job.from->string()),
+                        "something else is writing to the file; stop it and try again");
+        }
+
+        DWORD written = 0;
+        if (win32().write_file(job.destination, job.buffer.data(), read, &written, nullptr) == FALSE) {
+            return std::unexpected(
+                error_from_win32(win32().get_last_error(), std::format("write {}", job.to->string())));
+        }
+        if (written != read) {
+            return fail(ErrorCode::Generic, std::format("{} accepted only part of a write", job.to->string()),
+                        "the volume may be full; check the free space and try again");
+        }
+
+        offset += read;
+        job.copied += read;
+        if (!progress(job.copied, job.total)) {
+            return fail(ErrorCode::Partial, std::format("copying {} was cancelled", job.from->string()),
+                        std::format("{} is a partial copy and can be deleted", job.to->string()));
+        }
+    }
+    return {};
 }
 
 /// Closes a FindFirstFileEx search through the injection table.
@@ -285,6 +394,111 @@ Result<bool> Win32FileSystem::is_locked(const std::filesystem::path& path) const
     // answer to the question that was asked.
     return std::unexpected(
         error_from_win32(status, std::format("check whether {} is in use", path.string())));
+}
+
+Status Win32FileSystem::copy_file_sparse(
+    const std::filesystem::path& from, const std::filesystem::path& to,
+    const std::function<bool(std::uint64_t copied, std::uint64_t total)>& progress) {
+    // The ranges drive the whole copy: they are what to read, what to write and
+    // what the progress is measured against. Asking first also fails early on a
+    // source that cannot be read at all.
+    const auto ranges = allocated_ranges(from);
+    if (!ranges.has_value()) {
+        return std::unexpected(ranges.error());
+    }
+    const auto length = file_size(from);
+    if (!length.has_value()) {
+        return std::unexpected(length.error());
+    }
+    const std::uint64_t total =
+        std::accumulate(ranges->begin(), ranges->end(), std::uint64_t{0},
+                        [](std::uint64_t sum, const AllocatedRange& range) { return sum + range.length; });
+
+    const ScopedHandle source{win32().create_file(from.c_str(), GENERIC_READ, FILE_SHARE_READ, nullptr,
+                                                  OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr)};
+    if (source.get() == INVALID_HANDLE_VALUE) {
+        return std::unexpected(
+            error_from_win32(win32().get_last_error(), std::format("open {}", from.string())));
+    }
+
+    // CREATE_NEW, so an existing destination is an error rather than something
+    // silently written over. A half-finished copy from a previous attempt is
+    // exactly the file most worth not clobbering.
+    const ScopedHandle destination{win32().create_file(to.c_str(), GENERIC_READ | GENERIC_WRITE, 0, nullptr,
+                                                       CREATE_NEW, FILE_ATTRIBUTE_NORMAL, nullptr)};
+    if (destination.get() == INVALID_HANDLE_VALUE) {
+        return std::unexpected(
+            error_from_win32(win32().get_last_error(), std::format("create {}", to.string())));
+    }
+
+    // Sparse before anything is written. Setting it afterwards would not give
+    // back the space the writes had already committed.
+    DWORD returned = 0;
+    if (win32().device_io_control(destination.get(), FSCTL_SET_SPARSE, nullptr, 0, nullptr, 0, &returned,
+                                  nullptr) == FALSE) {
+        return std::unexpected(
+            error_from_win32(win32().get_last_error(), std::format("make {} a sparse file", to.string())));
+    }
+
+    // The logical length, holes included, so the copy is the same size as the
+    // original even though only the allocated ranges get written.
+    if (const Status sized = resize(destination.get(), *length, to); !sized.has_value()) {
+        return sized;
+    }
+
+    std::vector<std::byte> buffer(copy_chunk_bytes);
+    CopyJob job{.source = source.get(),
+                .destination = destination.get(),
+                .buffer = buffer,
+                .from = &from,
+                .to = &to,
+                .total = total,
+                .copied = 0};
+    for (const AllocatedRange& range : *ranges) {
+        if (const Status done = copy_range(job, range, progress); !done.has_value()) {
+            return done;
+        }
+    }
+    return {};
+}
+
+Status Win32FileSystem::rename(const std::filesystem::path& from, const std::filesystem::path& to) {
+    // No MOVEFILE_COPY_ALLOWED: across volumes Windows would fall back to a copy
+    // that does not preserve the holes, which for a VHDX is the difference
+    // between moving twelve gigabytes and writing a terabyte. Let it fail and
+    // let the caller copy properly.
+    if (win32().move_file_ex(from.c_str(), to.c_str(), 0) == FALSE) {
+        return std::unexpected(error_from_win32(win32().get_last_error(),
+                                                std::format("rename {} to {}", from.string(), to.string())));
+    }
+    return {};
+}
+
+Result<bool> Win32FileSystem::same_volume(const std::filesystem::path& first,
+                                          const std::filesystem::path& second) const {
+    const auto root_of = [](const std::filesystem::path& path) -> Result<std::wstring> {
+        std::array<wchar_t, MAX_PATH + 1> root{};
+        if (win32().get_volume_path_name(path.c_str(), root.data(), static_cast<DWORD>(root.size())) ==
+            FALSE) {
+            return std::unexpected(error_from_win32(
+                win32().get_last_error(), std::format("resolve the volume holding {}", path.string())));
+        }
+        return std::wstring{root.data()};
+    };
+
+    const auto first_root = root_of(first);
+    if (!first_root.has_value()) {
+        return std::unexpected(first_root.error());
+    }
+    const auto second_root = root_of(second);
+    if (!second_root.has_value()) {
+        return std::unexpected(second_root.error());
+    }
+    // Volume paths come back with consistent casing from the same API, but the
+    // filesystem does not care about case and neither should this.
+    return std::ranges::equal(*first_root, *second_root, [](wchar_t left, wchar_t right) {
+        return std::towlower(left) == std::towlower(right);
+    });
 }
 
 Status Win32FileSystem::remove(const std::filesystem::path& path) {

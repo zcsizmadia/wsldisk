@@ -21,6 +21,12 @@ public:
         const std::filesystem::path& path) const override;
     [[nodiscard]] Result<bool> is_locked(const std::filesystem::path& path) const override;
     [[nodiscard]] Status remove(const std::filesystem::path& path) override;
+    [[nodiscard]] Status copy_file_sparse(
+        const std::filesystem::path& from, const std::filesystem::path& to,
+        const std::function<bool(std::uint64_t copied, std::uint64_t total)>& progress) override;
+    [[nodiscard]] Status rename(const std::filesystem::path& from, const std::filesystem::path& to) override;
+    [[nodiscard]] Result<bool> same_volume(const std::filesystem::path& first,
+                                           const std::filesystem::path& second) const override;
     [[nodiscard]] Result<std::filesystem::path> expand_environment(
         const std::filesystem::path& path) const override;
     [[nodiscard]] Result<std::string> read_text_file(const std::filesystem::path& path) const override;

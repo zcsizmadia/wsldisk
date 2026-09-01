@@ -151,6 +151,13 @@ const Win32Api& real_win32_api() {
             [](HANDLE file, LPCVOID buffer, DWORD to_write, LPDWORD written, LPOVERLAPPED overlapped) {
                 return ::WriteFile(file, buffer, to_write, written, overlapped);
             },
+        .set_file_pointer_ex =
+            [](HANDLE file, LARGE_INTEGER distance, PLARGE_INTEGER new_pointer, DWORD method) {
+                return ::SetFilePointerEx(file, distance, new_pointer, method);
+            },
+        .set_end_of_file = [](HANDLE file) { return ::SetEndOfFile(file); },
+        .move_file_ex = [](LPCWSTR existing, LPCWSTR replacement,
+                           DWORD flags) { return ::MoveFileExW(existing, replacement, flags); },
         .create_directory =
             [](LPCWSTR path, LPSECURITY_ATTRIBUTES attributes) {
                 return ::CreateDirectoryW(path, attributes);

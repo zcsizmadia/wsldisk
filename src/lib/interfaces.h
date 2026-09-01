@@ -291,6 +291,45 @@ public:
     /// Deletes a file. Only ever called after the user has confirmed.
     [[nodiscard]] virtual Status remove(const std::filesystem::path& path) = 0;
 
+    /// Copies a file, keeping the holes.
+    ///
+    /// Not `CopyFileEx`. A WSL disk is a sparse file whose logical length is its
+    /// *virtual* size -- a 12 GiB Ubuntu inside a 1 TiB VHDX -- and a copy that
+    /// does not understand that writes a terabyte of zeroes to move twelve
+    /// gigabytes. So the destination is created sparse and only the source's
+    /// allocated ranges are written; the holes are left as holes.
+    ///
+    /// `progress` is called with bytes copied so far and the total to copy,
+    /// counting only real bytes. Returning false asks the copy to stop, which
+    /// leaves the partial destination behind for the caller to remove -- there
+    /// is nothing useful to be done with half a disk, and deleting it here would
+    /// take that decision away from the operation that knows why it stopped.
+    ///
+    /// The destination must not already exist. Overwriting is not something this
+    /// interface offers, because every caller so far would be doing it by
+    /// mistake.
+    [[nodiscard]] virtual Status copy_file_sparse(
+        const std::filesystem::path& from, const std::filesystem::path& to,
+        const std::function<bool(std::uint64_t copied, std::uint64_t total)>& progress) = 0;
+
+    /// Renames a file, which is instant when both paths are on one volume.
+    ///
+    /// The fast path for a move that is not really a move. Across volumes
+    /// Windows would fall back to a copy-and-delete that does not preserve
+    /// sparseness, so this deliberately does not ask for that: it fails, and the
+    /// caller copies instead.
+    [[nodiscard]] virtual Status rename(const std::filesystem::path& from,
+                                        const std::filesystem::path& to) = 0;
+
+    /// Whether two paths would live on the same volume.
+    ///
+    /// Asked before a move, to choose between the rename and the copy. Both
+    /// paths are resolved to their volume mount point, so a directory mounted
+    /// into another volume's namespace is answered correctly rather than by
+    /// comparing drive letters.
+    [[nodiscard]] virtual Result<bool> same_volume(const std::filesystem::path& first,
+                                                   const std::filesystem::path& second) const = 0;
+
     /// Expands `%VAR%` references, for the default scan directories and config.
     [[nodiscard]] virtual Result<std::filesystem::path> expand_environment(
         const std::filesystem::path& path) const = 0;

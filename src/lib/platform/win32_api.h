@@ -101,6 +101,11 @@ struct Win32Api {
         read_file;
     std::function<BOOL(HANDLE file, LPCVOID buffer, DWORD to_write, LPDWORD written, LPOVERLAPPED overlapped)>
         write_file;
+    std::function<BOOL(HANDLE file, LARGE_INTEGER distance, PLARGE_INTEGER new_pointer, DWORD method)>
+        set_file_pointer_ex;
+    std::function<BOOL(HANDLE file)> set_end_of_file;
+    /// `MoveFileExW`, for the same-volume move that needs no copy at all.
+    std::function<BOOL(LPCWSTR existing, LPCWSTR replacement, DWORD flags)> move_file_ex;
     std::function<BOOL(LPCWSTR path, LPSECURITY_ATTRIBUTES attributes)> create_directory;
     std::function<BOOL(HANDLE pipe, LPVOID buffer, DWORD buffer_size, LPDWORD read, LPDWORD total_available,
                        LPDWORD left_this_message)>

@@ -16,6 +16,7 @@ wsldisk_add_test_suite(wsldisk_unit_tests unit
     ops/trim_test.cpp
     platform/clock_test.cpp
     platform/editor_test.cpp
+    platform/filesystem_copy_test.cpp
     platform/filesystem_scan_test.cpp
     platform/filesystem_test.cpp
     platform/registry_test.cpp

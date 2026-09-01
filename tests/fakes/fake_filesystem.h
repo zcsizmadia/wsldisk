@@ -1,10 +1,13 @@
 #pragma once
 
 #include <algorithm>
+#include <cstdint>
+#include <functional>
 #include <map>
 #include <optional>
 #include <set>
 #include <string>
+#include <utility>
 #include <vector>
 
 #include "errors.h"
@@ -194,6 +197,90 @@ public:
         return {};
     }
 
+    [[nodiscard]] Status copy_file_sparse(
+        const std::filesystem::path& from, const std::filesystem::path& to,
+        const std::function<bool(std::uint64_t copied, std::uint64_t total)>& progress) override {
+        if (copy_failure_) {
+            return std::unexpected(*copy_failure_);
+        }
+        const auto source = files_.find(from.wstring());
+        if (source == files_.end()) {
+            return fail(ErrorCode::Preflight, "no such file", "check the path");
+        }
+        if (files_.contains(to.wstring())) {
+            return fail(ErrorCode::Preflight, "the destination already exists", "move it aside first");
+        }
+
+        // Reported in the same shape the real one reports it -- allocated bytes,
+        // not logical length -- so a test can tell the two apart. A caller that
+        // reads the total as the file size would look right against a fake that
+        // used the file size.
+        const std::uint64_t total = source->second.size_on_disk.value_or(source->second.size);
+        for (const std::uint64_t mark : copy_progress_marks_) {
+            if (!progress(std::min(mark, total), total)) {
+                // The partial file is left behind, as the real one leaves it.
+                files_[to.wstring()] = source->second;
+                copied_.emplace_back(from.wstring(), to.wstring());
+                return fail(ErrorCode::Partial, "the copy was cancelled", "delete the partial file");
+            }
+        }
+
+        files_[to.wstring()] = source->second;
+        if (const auto text = text_.find(from.wstring()); text != text_.end()) {
+            text_[to.wstring()] = text->second;
+        }
+        copied_.emplace_back(from.wstring(), to.wstring());
+        return {};
+    }
+
+    [[nodiscard]] Status rename(const std::filesystem::path& from, const std::filesystem::path& to) override {
+        if (rename_failure_) {
+            return std::unexpected(*rename_failure_);
+        }
+        const auto source = files_.find(from.wstring());
+        if (source == files_.end()) {
+            return fail(ErrorCode::Preflight, "no such file", "check the path");
+        }
+        if (files_.contains(to.wstring())) {
+            return fail(ErrorCode::Preflight, "the destination already exists", "move it aside first");
+        }
+        files_[to.wstring()] = source->second;
+        files_.erase(from.wstring());
+        if (const auto text = text_.find(from.wstring()); text != text_.end()) {
+            text_[to.wstring()] = text->second;
+            text_.erase(from.wstring());
+        }
+        renamed_.emplace_back(from.wstring(), to.wstring());
+        return {};
+    }
+
+    [[nodiscard]] Result<bool> same_volume(const std::filesystem::path& first,
+                                           const std::filesystem::path& second) const override {
+        if (same_volume_failure_) {
+            return std::unexpected(*same_volume_failure_);
+        }
+        return first.root_path() == second.root_path();
+    }
+
+    /// Where `progress` is called during a copy, in bytes. Empty means it is
+    /// never called, which is what a copy of nothing looks like.
+    void set_copy_progress(std::vector<std::uint64_t> marks) { copy_progress_marks_ = std::move(marks); }
+
+    void fail_copy(Error error) { copy_failure_ = std::move(error); }
+
+    void fail_rename(Error error) { rename_failure_ = std::move(error); }
+
+    void fail_same_volume(Error error) { same_volume_failure_ = std::move(error); }
+
+    /// Every copy that was made, source then destination.
+    [[nodiscard]] const std::vector<std::pair<std::wstring, std::wstring>>& copied() const noexcept {
+        return copied_;
+    }
+
+    [[nodiscard]] const std::vector<std::pair<std::wstring, std::wstring>>& renamed() const noexcept {
+        return renamed_;
+    }
+
     /// Gives `path` text contents, creating it if it is not there.
     void add_text_file(const std::filesystem::path& path, std::string contents) {
         File file;
@@ -324,6 +411,12 @@ private:
     std::map<std::wstring, Error> variable_failures_;
     std::set<std::wstring> locked_;
     std::vector<std::wstring> removed_;
+    std::optional<Error> copy_failure_;
+    std::optional<Error> rename_failure_;
+    std::optional<Error> same_volume_failure_;
+    std::vector<std::uint64_t> copy_progress_marks_;
+    std::vector<std::pair<std::wstring, std::wstring>> copied_;
+    std::vector<std::pair<std::wstring, std::wstring>> renamed_;
 };
 
 }  // namespace wsldisk::testing
