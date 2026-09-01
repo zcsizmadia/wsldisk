@@ -1,0 +1,188 @@
+# Where space goes inside a WSL distribution, and which of it is a cache.
+#
+# `wsldisk usage` measures these paths with `du` and reports them by label. It
+# never deletes anything; `clean` is the command that acts on this, and it reads
+# the same file so the two cannot disagree about what a cache is.
+#
+# Data rather than code on purpose: adding a package manager should be a line
+# here, not a rebuild of the tool.
+#
+# Fields:
+#   path        absolute, inside the guest. `~` is expanded per user, so a
+#               single entry covers every home directory on the machine.
+#   label       what to call it in the table.
+#   safe        whether emptying it loses only things that can be fetched or
+#               regenerated. `false` means it holds something the user may want
+#               and `clean` will never take it without being told twice.
+#   note        shown when the entry is large enough to matter.
+#
+# `safe = false` is not "dangerous". It means the tool cannot know whether the
+# contents matter, so it declines to decide.
+
+# ---------------------------------------------------------------- packages ---
+
+[[cache]]
+path = "/var/cache/apt/archives"
+label = "apt package cache"
+safe = true
+note = "downloaded .deb files; `apt clean` empties it and apt re-fetches on demand"
+
+[[cache]]
+path = "/var/lib/apt/lists"
+label = "apt package lists"
+safe = true
+note = "repository indexes; `apt update` rebuilds them"
+
+[[cache]]
+path = "/var/cache/dnf"
+label = "dnf package cache"
+safe = true
+note = "downloaded packages and metadata; `dnf clean all` empties it"
+
+[[cache]]
+path = "/var/cache/yum"
+label = "yum package cache"
+safe = true
+note = "downloaded packages and metadata"
+
+[[cache]]
+path = "/var/cache/pacman/pkg"
+label = "pacman package cache"
+safe = true
+note = "downloaded packages; `paccache -r` keeps the most recent few"
+
+[[cache]]
+path = "/var/cache/zypp"
+label = "zypper package cache"
+safe = true
+
+[[cache]]
+path = "/var/cache/apk"
+label = "apk package cache"
+safe = true
+
+# --------------------------------------------------------------- languages ---
+
+[[cache]]
+path = "~/.cache/pip"
+label = "pip cache"
+safe = true
+note = "wheels pip can download again; `pip cache purge` empties it"
+
+[[cache]]
+path = "~/.npm"
+label = "npm cache"
+safe = true
+note = "`npm cache clean --force` empties it"
+
+[[cache]]
+path = "~/.cache/yarn"
+label = "yarn cache"
+safe = true
+
+[[cache]]
+path = "~/.local/share/pnpm/store"
+label = "pnpm store"
+safe = false
+note = "pnpm hard-links from here into every node_modules; emptying it breaks installed projects until they are reinstalled"
+
+[[cache]]
+path = "~/.cargo/registry"
+label = "cargo registry"
+safe = true
+note = "downloaded crate sources and indexes; cargo re-fetches them"
+
+[[cache]]
+path = "~/.rustup/toolchains"
+label = "rustup toolchains"
+safe = false
+note = "installed compilers, not a cache; `rustup toolchain uninstall` removes one deliberately"
+
+[[cache]]
+path = "~/go/pkg/mod"
+label = "go module cache"
+safe = true
+note = "`go clean -modcache` empties it; note the files are read-only"
+
+[[cache]]
+path = "~/.gradle/caches"
+label = "gradle cache"
+safe = true
+
+[[cache]]
+path = "~/.m2/repository"
+label = "maven repository"
+safe = true
+note = "re-downloaded on the next build, which can be slow over a poor connection"
+
+[[cache]]
+path = "~/.cache/go-build"
+label = "go build cache"
+safe = true
+
+[[cache]]
+path = "~/.nuget/packages"
+label = "NuGet packages"
+safe = true
+
+[[cache]]
+path = "~/.cache/composer"
+label = "composer cache"
+safe = true
+
+# --------------------------------------------------------------- container ---
+
+[[cache]]
+path = "/var/lib/docker"
+label = "docker storage"
+safe = false
+note = "images, containers and volumes the user built; `docker system prune` is their decision, never wsldisk's"
+
+[[cache]]
+path = "/var/lib/containers"
+label = "podman storage"
+safe = false
+note = "images and volumes; `podman system prune` is the user's decision"
+
+# ------------------------------------------------------------------ system ---
+
+[[cache]]
+path = "/var/log/journal"
+label = "systemd journal"
+safe = true
+note = "`journalctl --vacuum-size=100M` trims it; the logs are gone afterwards"
+
+[[cache]]
+path = "/var/log"
+label = "logs"
+safe = false
+note = "includes the journal counted above, and logs something may still be reading"
+
+[[cache]]
+path = "~/.cache"
+label = "user cache"
+safe = true
+note = "the XDG cache directory, which includes several of the entries above"
+
+[[cache]]
+path = "/tmp"
+label = "temporary files"
+safe = true
+note = "cleared on reboot on most distributions; anything running may still hold files here"
+
+[[cache]]
+path = "/var/tmp"
+label = "persistent temporary files"
+safe = true
+note = "survives reboots, which is why it grows"
+
+[[cache]]
+path = "/var/lib/snapd"
+label = "snap storage"
+safe = false
+note = "installed snaps and their revisions; `snap remove` and `snap set system refresh.retain=2` are the deliberate ways to shrink it"
+
+[[cache]]
+path = "/var/cache/man"
+label = "man page cache"
+safe = true

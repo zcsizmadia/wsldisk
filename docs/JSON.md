@@ -141,6 +141,38 @@ object.
 every volume you have and no distribution claims it. `orphans --delete` refuses
 anything another process has open (exit 11), but the decision is still yours.
 
+## `usage`
+
+A single object. `entries` is an array, biggest first.
+
+```json
+{"counted":4294967296,"distribution":"Ubuntu","entries":[{"bytes":3221225472,"contains_others":false,"label":"docker storage","note":"images, containers and volumes the user built","path":"/var/lib/docker","safe":false}],"guest_free":85899345920,"guest_used":21474836480}
+```
+
+| Field | Type | Always? | Meaning |
+|---|---|---|---|
+| `distribution` | string | yes | The distribution that was measured |
+| `guest_used` | number | yes | Bytes `df` reports in use inside the guest |
+| `guest_free` | number | yes | Bytes `df` reports available |
+| `counted` | number | yes | The entries added up, nested ones counted once |
+| `entries` | array | yes | One object per place that was found, biggest first |
+| `notes` | array | when any | What could not be measured, in words |
+
+Each entry:
+
+| Field | Type | Always? | Meaning |
+|---|---|---|---|
+| `path` | string | yes | The guest path, with `~` already expanded |
+| `label` | string | yes | What to call it |
+| `bytes` | number | yes | What `du` reported |
+| `safe` | bool | yes | Whether emptying it loses only what can be fetched again |
+| `contains_others` | bool | yes | Whether another entry lives inside this one |
+| `note` | string | when the catalogue carries one | Usually how to empty it properly |
+
+`counted` excludes entries that sit inside another, so it can be compared with
+`guest_used` without double-counting. `--top` shortens `entries` and leaves
+`counted` alone.
+
 ## `move`
 
 A single object.

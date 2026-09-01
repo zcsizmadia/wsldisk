@@ -135,7 +135,7 @@ owner, not something CI should do on its own.
 - [ ] `ShrinkOperation`: fit check with margin, `e2fsck -f`, `resize2fs <size>`, `ResizeVirtualDisk` (safe flag only), compact, `e2fsck -n` verify
 - [ ] `wsldisk mount` / `unmount` wrappers (read-only default)
 - [ ] `wsldisk verify <distro>` (VHDX metadata + `e2fsck -n`, exit 6 on errors)
-- [ ] `wsldisk usage <distro>` with curated cache catalogue (`data/caches.toml`)
+- [x] `wsldisk usage <distro>` with curated cache catalogue (`data/caches.toml`) ([#109](https://github.com/zcsizmadia/wsldisk/issues/109))
 - [ ] `wsldisk clean <distro>` per-category flags, `--dry-run`, `--compact` chaining; never outside catalogue paths
 - [ ] `wsldisk default-user <distro> [name|uid]`
 - [ ] `wsldisk set-sparse <distro> on|off` with caveat gate and post-off compact

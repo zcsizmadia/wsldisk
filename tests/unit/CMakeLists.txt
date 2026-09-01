@@ -3,6 +3,7 @@ wsldisk_add_test_suite(wsldisk_unit_tests unit
     errors_test.cpp
     version_test.cpp
     fakes/fake_registry_test.cpp
+    model/catalogue_test.cpp
     model/config_test.cpp
     model/disk_info_test.cpp
     model/distro_test.cpp
@@ -15,6 +16,7 @@ wsldisk_add_test_suite(wsldisk_unit_tests unit
     ops/relink_test.cpp
     ops/runner_test.cpp
     ops/trim_test.cpp
+    ops/usage_test.cpp
     platform/clock_test.cpp
     platform/editor_test.cpp
     platform/filesystem_copy_test.cpp
@@ -37,7 +39,8 @@ wsldisk_add_test_suite(wsldisk_unit_tests unit
     cli/progress_test.cpp
     cli/relink_command_test.cpp
     cli/render_test.cpp
-    cli/trim_command_test.cpp)
+    cli/trim_command_test.cpp
+    cli/usage_command_test.cpp)
 
 target_link_libraries(wsldisk_unit_tests PRIVATE wsldisk::lib wsldisk::cli)
 # The in-memory fakes are shared by every suite that drives an operation.

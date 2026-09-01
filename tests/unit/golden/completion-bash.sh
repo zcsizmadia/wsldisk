@@ -5,9 +5,9 @@
 #   source <(wsldisk completion bash)
 
 _wsldisk() {
-    local commands='list info orphans move relink trim compact config completion'
+    local commands='list info orphans move relink trim usage compact config completion'
     local global='--help -h --version -V --json --verbose -v --yes -y --dry-run --log'
-    local distro_slots=' info:0 move:0 relink:0 trim:0 compact:0 '
+    local distro_slots=' info:0 move:0 relink:0 trim:0 usage:0 compact:0 '
     local path_slots=' move:1 relink:1 '
 
     local cur prev command word
@@ -36,6 +36,7 @@ _wsldisk() {
         move) flags='--help -h --keep-source --json --verbose -v --yes -y --dry-run --log' ;;
         relink) flags='--help -h --json --verbose -v --yes -y --dry-run --log' ;;
         trim) flags='--help -h --json --verbose -v --yes -y --dry-run --log' ;;
+        usage) flags='--help -h --top --json --verbose -v --yes -y --dry-run --log' ;;
         compact) flags='--help -h --json --verbose -v --yes -y --dry-run --log --all --file --no-trim --restart --shutdown' ;;
         config) flags='path get set edit --help -h --json --verbose -v --yes -y --dry-run --log' ;;
         completion) flags='--help -h --verbose -v --yes -y --dry-run --log' ;;

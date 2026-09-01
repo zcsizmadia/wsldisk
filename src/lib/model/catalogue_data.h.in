@@ -1,0 +1,16 @@
+#pragma once
+
+// Generated from data/caches.toml at configure time. Do not edit; edit the TOML.
+//
+// The catalogue is compiled in rather than shipped beside the executable so the
+// tool stays the single dependency-free file it advertises: a data file next to
+// it would be one more thing to lose, to get out of step with the binary, or to
+// have to reason about the absence of.
+
+#include <string_view>
+
+namespace wsldisk::model {
+
+inline constexpr std::string_view embedded_caches_toml = R"CATALOGUE(@WSLDISK_CACHES_TOML@)CATALOGUE";
+
+}  // namespace wsldisk::model

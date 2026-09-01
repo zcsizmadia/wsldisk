@@ -408,3 +408,100 @@ def test_no_document_repeats_a_heading():
         "markdownlint MD024 will fail on these, and it only runs in CI here -- "
         "the npm proxy forbids markdownlint-cli2 locally.\n" + "\n".join(offenders)
     )
+
+CACHES_TOML = REPO_ROOT / "data" / "caches.toml"
+
+CACHE_ENTRY = re.compile(r"^\[\[cache\]\]\s*$")
+CACHE_FIELD = re.compile(r'^(path|label|safe|note)\s*=\s*(.+?)\s*$')
+
+
+def cache_entries() -> list[dict[str, str]]:
+    """The catalogue, parsed without a TOML library.
+
+    `tomllib` would be the obvious tool and is in the standard library from 3.11,
+    but this suite runs wherever CI's Python happens to be and the file is simple
+    enough to read directly. What matters is that *something* outside the C++
+    reads it, so a bad edit fails here rather than shipping.
+    """
+    entries: list[dict[str, str]] = []
+    current: dict[str, str] | None = None
+    for line in CACHES_TOML.read_text(encoding="utf-8").splitlines():
+        stripped = line.strip()
+        if CACHE_ENTRY.match(stripped):
+            current = {}
+            entries.append(current)
+            continue
+        if current is None or not stripped or stripped.startswith("#"):
+            continue
+        match = CACHE_FIELD.match(stripped)
+        if match:
+            current[match.group(1)] = match.group(2)
+    return entries
+
+
+def test_the_cache_catalogue_has_entries():
+    assert len(cache_entries()) > 10, (
+        "data/caches.toml is the whole of what `usage` knows how to look for; "
+        "an empty one would make every usage test pass against nothing."
+    )
+
+
+def test_every_cache_entry_has_its_required_fields():
+    offenders = []
+    for number, entry in enumerate(cache_entries(), start=1):
+        for field in ("path", "label", "safe"):
+            if field not in entry:
+                offenders.append(f"entry {number} has no `{field}`")
+
+    assert not offenders, (
+        "every [[cache]] in data/caches.toml needs a path, a label and a safe "
+        "flag; the parser refuses the file otherwise and `usage` would find "
+        "nothing.\n" + "\n".join(offenders)
+    )
+
+
+def test_every_cache_path_is_absolute_and_has_no_trailing_slash():
+    """A relative path would be measured against the guest's working directory.
+
+    A trailing slash breaks the containment check, which looks for the separator
+    after a prefix -- so `/var/log/` would stop recognising `/var/log/journal` as
+    inside it and the report would count both.
+    """
+    offenders = []
+    for number, entry in enumerate(cache_entries(), start=1):
+        path = entry.get("path", "").strip('"')
+        if not path.startswith("/") and not path.startswith("~/"):
+            offenders.append(f"entry {number}: `{path}` is relative")
+        if path.endswith("/"):
+            offenders.append(f"entry {number}: `{path}` ends with a slash")
+
+    assert not offenders, "\n".join(offenders)
+
+
+def test_no_cache_path_appears_twice():
+    """A duplicate would be measured twice and counted twice."""
+    seen: dict[str, int] = {}
+    offenders = []
+    for number, entry in enumerate(cache_entries(), start=1):
+        path = entry.get("path", "").strip('"')
+        if path in seen:
+            offenders.append(f"entry {number}: `{path}` repeats entry {seen[path]}")
+        else:
+            seen[path] = number
+
+    assert not offenders, "\n".join(offenders)
+
+
+def test_container_storage_is_not_marked_clearable():
+    """`/var/lib/docker` holds images someone built.
+
+    wsldisk cannot tell whether they matter, so it declines to decide and
+    `clean` will not take them without being told twice. Flipping this to `true`
+    would make a future `clean --all` delete a user's images.
+    """
+    for number, entry in enumerate(cache_entries(), start=1):
+        path = entry.get("path", "").strip('"')
+        if path in ("/var/lib/docker", "/var/lib/containers"):
+            assert entry.get("safe") == "false", (
+                f"entry {number}: `{path}` must be safe = false"
+            )

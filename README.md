@@ -141,6 +141,26 @@ has open, and asks before removing the rest — but the judgement is yours.
 wsldisk orphans --delete                       # asks first; --yes skips the prompt
 ```
 
+### Finding where the space went
+
+`compact` gives back what is free. `usage` says what is not:
+
+```text
+> wsldisk usage Ubuntu
+SIZE       WHAT                 CLEARABLE  PATH
+2.7 GiB    docker storage       no         /var/lib/docker
+965.5 MiB  logs                 no         /var/log
+840.0 MiB  systemd journal      yes        /var/log/journal
+194.4 MiB  apt package lists    yes        /var/lib/apt/lists
+
+4.0 GiB found, of 10.2 GiB the guest reports in use
+```
+
+Read-only: it measures and deletes nothing. `no` in the clearable column means
+wsldisk cannot tell whether the contents matter — `/var/lib/docker` holds images
+you built — not that removing them would break something. See
+[docs/USAGE.md](docs/USAGE.md).
+
 ### Moving a disk to another drive
 
 WSL's own answer is `wsl --export` and `wsl --import`, which loses the default
