@@ -62,6 +62,12 @@ struct Machine {
         host.on_command("/usr/bin/du", WslCommandResult{.exit_code = 1});
     }
 
+    /// A whole `du -bx -d N /` listing, for the `--by-directory` breakdown.
+    void with_listing(std::string_view text) {
+        host.on_command_for("/usr/bin/du", "-d",
+                            WslCommandResult{.exit_code = 0, .standard_output = std::string{text}});
+    }
+
     /// The usual two findings: something wsldisk cannot judge and something it
     /// can.
     void with_findings() {
@@ -252,6 +258,81 @@ TEST_CASE("usage refuses a WSL1 distribution", "[cli][usage]") {
 
     CHECK(machine.run(GlobalOptions{}, out, UsageCommandOptions{.name = "Legacy-WSL1"}) ==
           exit_code_for(ErrorCode::Preflight));
+}
+
+TEST_CASE("usage by directory prints a second table", "[cli][usage]") {
+    Machine machine;
+    machine.with_findings();
+    machine.with_listing("4294967296\t/var\n3221225472\t/home\n");
+    std::ostringstream out;
+
+    CHECK(machine.run(GlobalOptions{}, out, UsageCommandOptions{.name = "Ubuntu", .by_directory = true}) ==
+          exit_code_success);
+
+    CHECK(out.str().find("DIRECTORY") != std::string::npos);
+    CHECK(out.str().find("/home") != std::string::npos);
+    // The line that stops a reader adding the two tables together.
+    CHECK(out.str().find("not extra findings") != std::string::npos);
+}
+
+TEST_CASE("usage by directory says how much of a row was already shown", "[cli][usage]") {
+    // A label alone claimed a whole directory was covered when a few bytes of it
+    // were. The number is what makes the overlap legible.
+    Machine machine;
+    machine.with_findings();
+    machine.with_listing("4294967296\t/var\n3221225472\t/home\n");
+    std::ostringstream out;
+
+    CHECK(machine.run(GlobalOptions{}, out, UsageCommandOptions{.name = "Ubuntu", .by_directory = true}) ==
+          exit_code_success);
+
+    CHECK(out.str().find("OF WHICH KNOWN") != std::string::npos);
+    CHECK(out.str().find("LARGEST KNOWN") != std::string::npos);
+    CHECK(out.str().find("docker storage") != std::string::npos);
+}
+
+TEST_CASE("usage without the flag prints one table", "[cli][usage]") {
+    Machine machine;
+    machine.with_findings();
+    std::ostringstream out;
+
+    CHECK(machine.run(GlobalOptions{}, out) == exit_code_success);
+    CHECK(out.str().find("DIRECTORY") == std::string::npos);
+}
+
+TEST_CASE("usage by directory as JSON carries the breakdown", "[cli][usage]") {
+    Machine machine;
+    machine.with_findings();
+    machine.with_listing("4294967296\t/var\n3221225472\t/home\n");
+    std::ostringstream out;
+
+    CHECK(machine.run(GlobalOptions{.json = true}, out,
+                      UsageCommandOptions{.name = "Ubuntu", .by_directory = true}) == exit_code_success);
+
+    const nlohmann::json object = nlohmann::json::parse(out.str());
+    REQUIRE(object.contains("directories"));
+    REQUIRE(object.at("directories").size() == 2);
+    const nlohmann::json& first = object.at("directories")[0];
+    CHECK(first.at("path") == "/var");
+    CHECK(first.at("depth") == 1);
+    // Both findings live under /var: the docker storage and the apt cache.
+    CHECK(first.at("attributed_bytes") == 3 * gigabyte + 200 * megabyte);
+    CHECK(first.at("attributed_to") == "docker storage");
+    // Nothing in the catalogue is under /home, so the label is left out rather
+    // than sent as an empty string.
+    CHECK_FALSE(object.at("directories")[1].contains("attributed_to"));
+    CHECK(object.at("directories")[1].at("attributed_bytes") == 0);
+}
+
+TEST_CASE("usage as JSON omits the breakdown when it was not asked for", "[cli][usage]") {
+    Machine machine;
+    machine.with_findings();
+    std::ostringstream out;
+
+    CHECK(machine.run(GlobalOptions{.json = true}, out) == exit_code_success);
+
+    const nlohmann::json object = nlohmann::json::parse(out.str());
+    CHECK_FALSE(object.contains("directories"));
 }
 
 TEST_CASE("usage as JSON omits a note the catalogue does not carry", "[cli][usage]") {

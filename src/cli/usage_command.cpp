@@ -3,6 +3,8 @@
 #include <CLI/CLI.hpp>
 #include <nlohmann/json.hpp>
 
+#include <cstddef>
+#include <optional>
 #include <ostream>
 #include <string>
 #include <vector>
@@ -54,6 +56,27 @@ void render_usage(const ops::UsageReport& report, std::ostream& out) {
             out << entry.path << " contains other rows above; its size is not added twice\n";
         }
     }
+    if (!report.directories.empty()) {
+        out << '\n';
+        Table table{{"SIZE", "DIRECTORY", "OF WHICH KNOWN", "LARGEST KNOWN"}};
+        for (const ops::UsageDirectory& directory : report.directories) {
+            table.add_row({Cell{.bytes = directory.bytes}, Cell{.text = directory.path},
+                           Cell{.bytes = directory.attributed_bytes > 0
+                                             ? std::optional<std::uint64_t>{directory.attributed_bytes}
+                                             : std::optional<std::uint64_t>{}},
+                           Cell{.text = directory.attributed_to.empty()
+                                            ? std::optional<std::string>{}
+                                            : std::optional<std::string>{directory.attributed_to}}});
+        }
+        table.render(out);
+        out << '\n';
+        // The two tables overlap on purpose, and a reader who added them up would
+        // be double-counting. The "of which known" column is what makes that
+        // legible: the rest of each row is space nothing above accounted for.
+        out << "directories are the whole guest, not extra findings. `of which known` is how "
+               "much of each row the table above already showed\n";
+    }
+
     for (const std::string& note : report.notes) {
         out << "note: " << note << '\n';
     }
@@ -80,6 +103,23 @@ void render_usage_json(const ops::UsageReport& report, std::ostream& out) {
         entries.push_back(std::move(item));
     }
     object["entries"] = std::move(entries);
+
+    if (!report.directories.empty()) {
+        nlohmann::json directories = nlohmann::json::array();
+        for (const ops::UsageDirectory& directory : report.directories) {
+            nlohmann::json item;
+            item["path"] = directory.path;
+            item["bytes"] = directory.bytes;
+            item["depth"] = directory.depth;
+            item["attributed_bytes"] = directory.attributed_bytes;
+            if (!directory.attributed_to.empty()) {
+                item["attributed_to"] = directory.attributed_to;
+            }
+            directories.push_back(std::move(item));
+        }
+        object["directories"] = std::move(directories);
+    }
+
     if (!report.notes.empty()) {
         object["notes"] = report.notes;
     }
@@ -123,7 +163,9 @@ int run_usage(const Services& services, const UsageCommandOptions& options, cons
         return exit_code_success;
     }
 
-    ops::UsageOperation operation{*services.host, *distro, ops::UsageOptions{.top = options.top}};
+    ops::UsageOperation operation{
+        *services.host, *distro,
+        ops::UsageOptions{.top = options.top, .by_directory = options.by_directory, .depth = options.depth}};
 
     // `du` over a large filesystem takes minutes. Under `--json` it goes to
     // stderr with everything else, so stdout stays parseable.
@@ -150,6 +192,12 @@ void add_usage_command(CLI::App& app, GlobalOptions& global, UsageCommandOptions
     CLI::App* usage = app.add_subcommand("usage", "Show where the space inside a distribution went");
     usage->add_option("distro", options.name, "The distribution to look inside")->required();
     usage->add_option("--top", options.top, "Show only the largest N entries");
+    usage->add_flag("--by-directory", options.by_directory, "Also break the whole guest down by directory");
+    // Only meaningful with the breakdown, and `--depth 3` on its own is an
+    // instruction that would otherwise be silently ignored.
+    usage->add_option("--depth", options.depth, "How deep the directory breakdown goes")
+        ->needs("--by-directory")
+        ->check(CLI::Range(std::size_t{1}, std::size_t{8}));
     add_global_options(*usage, global);
 }
 

@@ -29,6 +29,7 @@ public:
           running_(std::move(other.running_)),
           responses_(std::move(other.responses_)),
           argument_responses_(std::move(other.argument_responses_)),
+          argument_failures_(std::move(other.argument_failures_)),
           calls_(std::move(other.calls_)),
           running_failure_(std::move(other.running_failure_)),
           terminate_failure_(std::move(other.terminate_failure_)),
@@ -78,6 +79,17 @@ public:
     void on_command_for(std::string program, std::string argument, WslCommandResult result) {
         argument_responses_.push_back(
             ArgumentResponse{std::move(program), std::move(argument), std::move(result)});
+    }
+
+    /// Makes one call fail outright -- wsl.exe not answering -- identified by an
+    /// argument rather than by how many calls came before it.
+    ///
+    /// `fail_command_from` counts, and a caller that runs one command per
+    /// catalogue entry has no stable count: adding a line to `caches.toml` would
+    /// move the failure onto a different call. This names the one that matters.
+    void fail_command_for(std::string program, std::string argument, Error error) {
+        argument_failures_.push_back(
+            ArgumentFailure{std::move(program), std::move(argument), std::move(error)});
     }
 
     void fail_running(Error error) { running_failure_ = std::move(error); }
@@ -161,6 +173,15 @@ public:
         commands_.push_back(Invocation{
             .distribution = std::string{name}, .argv = {argv.begin(), argv.end()}, .timeout = timeout});
 
+        for (const ArgumentFailure& scripted : argument_failures_) {
+            if (scripted.program != argv.front()) {
+                continue;
+            }
+            if (std::ranges::find(argv, scripted.argument) != argv.end()) {
+                return std::unexpected(scripted.error);
+            }
+        }
+
         for (const ArgumentResponse& scripted : argument_responses_) {
             if (scripted.program != argv.front()) {
                 continue;
@@ -206,7 +227,15 @@ private:
 
     mutable std::vector<std::string> running_;
     std::map<std::string, std::vector<WslCommandResult>> responses_;
+
+    struct ArgumentFailure {
+        std::string program;
+        std::string argument;
+        Error error;
+    };
+
     std::vector<ArgumentResponse> argument_responses_;
+    std::vector<ArgumentFailure> argument_failures_;
     mutable std::map<std::string, std::size_t> calls_;
     std::optional<Error> running_failure_;
     std::optional<Error> terminate_failure_;

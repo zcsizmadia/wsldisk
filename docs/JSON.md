@@ -156,6 +156,7 @@ A single object. `entries` is an array, biggest first.
 | `guest_free` | number | yes | Bytes `df` reports available |
 | `counted` | number | yes | The entries added up, nested ones counted once |
 | `entries` | array | yes | One object per place that was found, biggest first |
+| `directories` | array | with `--by-directory` | The largest directories, biggest first |
 | `notes` | array | when any | What could not be measured, in words |
 
 Each entry:
@@ -172,6 +173,20 @@ Each entry:
 `counted` excludes entries that sit inside another, so it can be compared with
 `guest_used` without double-counting. `--top` shortens `entries` and leaves
 `counted` alone.
+
+Each directory, present only with `--by-directory`:
+
+| Field | Type | Always? | Meaning |
+|---|---|---|---|
+| `path` | string | yes | The guest directory |
+| `bytes` | number | yes | What `du` reported for it |
+| `depth` | number | yes | How far below `/` it sits; `/var/lib` is 2 |
+| `attributed_bytes` | number | yes | How much of it `entries` already accounted for |
+| `attributed_to` | string | when any | The largest catalogue entry inside it |
+
+`entries` and `directories` describe the same disk from two angles and must not
+be added together. `attributed_bytes` is the overlap: subtracting it from `bytes`
+gives the part of that directory nothing in the catalogue explains.
 
 ## `move`
 

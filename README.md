@@ -158,8 +158,11 @@ SIZE       WHAT                 CLEARABLE  PATH
 
 Read-only: it measures and deletes nothing. `no` in the clearable column means
 wsldisk cannot tell whether the contents matter — `/var/lib/docker` holds images
-you built — not that removing them would break something. See
-[docs/USAGE.md](docs/USAGE.md).
+you built — not that removing them would break something.
+
+`--by-directory` walks the whole guest and shows the largest directories
+whatever they are, with a column saying how much of each the table above already
+explained. See [docs/USAGE.md](docs/USAGE.md).
 
 ### Moving a disk to another drive
 

@@ -36,7 +36,7 @@ _wsldisk() {
         move) flags='--help -h --keep-source --json --verbose -v --yes -y --dry-run --log' ;;
         relink) flags='--help -h --json --verbose -v --yes -y --dry-run --log' ;;
         trim) flags='--help -h --json --verbose -v --yes -y --dry-run --log' ;;
-        usage) flags='--help -h --top --json --verbose -v --yes -y --dry-run --log' ;;
+        usage) flags='--help -h --top --by-directory --depth --json --verbose -v --yes -y --dry-run --log' ;;
         compact) flags='--help -h --json --verbose -v --yes -y --dry-run --log --all --file --no-trim --restart --shutdown' ;;
         config) flags='path get set edit --help -h --json --verbose -v --yes -y --dry-run --log' ;;
         completion) flags='--help -h --verbose -v --yes -y --dry-run --log' ;;

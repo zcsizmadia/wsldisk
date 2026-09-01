@@ -59,6 +59,34 @@ std::optional<std::uint64_t> parse_du_line(std::string_view line) {
     return value;
 }
 
+std::size_t path_depth(std::string_view path) {
+    // `/` is the root and sits at zero; every separator after that is a level.
+    if (path == "/") {
+        return 0;
+    }
+    return static_cast<std::size_t>(std::ranges::count(path, '/'));
+}
+
+std::vector<UsageDirectory> parse_du_listing(std::string_view text) {
+    std::vector<UsageDirectory> found;
+    for (const std::string_view line : lines_of(text)) {
+        const auto bytes = parse_du_line(line);
+        if (!bytes.has_value()) {
+            continue;
+        }
+        const std::size_t tab = line.find('\t');
+        std::string path{line.substr(tab + 1)};
+        // A trailing slash would break the containment checks, which compare the
+        // separator after a prefix. `du` does not add one, but a caller can.
+        if (path.size() > 1 && path.ends_with('/')) {
+            path.pop_back();
+        }
+        found.push_back(
+            UsageDirectory{.path = path, .bytes = *bytes, .depth = path_depth(path), .attributed_to = {}});
+    }
+    return found;
+}
+
 std::vector<std::string> home_directories(std::string_view passwd) {
     std::set<std::string> homes;
     for (const std::string_view line : lines_of(passwd)) {
@@ -99,6 +127,40 @@ void account_for_nesting(UsageReport& report) {
         });
         if (!inside_another) {
             report.counted += entry.bytes;
+        }
+    }
+}
+
+}  // namespace
+
+namespace {
+
+/// How much of `directory` the catalogue already accounts for, and by what.
+///
+/// Nested catalogue entries are counted once -- `/var/log/journal` inside
+/// `/var/log` is one lot of bytes, not two -- so the figure can be compared with
+/// the directory's own size without exceeding it.
+void attribute(UsageDirectory& directory, const std::vector<UsageEntry>& entries) {
+    std::uint64_t largest = 0;
+    for (const UsageEntry& entry : entries) {
+        const bool inside = entry.path == directory.path || model::path_contains(directory.path, entry.path);
+        if (!inside) {
+            continue;
+        }
+        // Skip an entry that sits inside another entry which is also in here:
+        // the containing one already carries its bytes.
+        const bool nested = std::ranges::any_of(entries, [&entry, &directory](const UsageEntry& outer) {
+            const bool outer_inside =
+                outer.path == directory.path || model::path_contains(directory.path, outer.path);
+            return outer_inside && model::path_contains(outer.path, entry.path);
+        });
+        if (nested) {
+            continue;
+        }
+        directory.attributed_bytes += entry.bytes;
+        if (entry.bytes > largest) {
+            largest = entry.bytes;
+            directory.attributed_to = entry.label;
         }
     }
 }
@@ -166,6 +228,50 @@ Result<std::optional<UsageEntry>> UsageOperation::measure_path(const model::Cach
     return found;
 }
 
+Status UsageOperation::measure_directories(UsageReport& report,
+                                           const std::function<void(std::string_view)>& progress) {
+    progress("walking the filesystem by directory");
+
+    // `-d` rather than `--max-depth`: busybox spells it the short way and does
+    // not accept the long one, and Alpine's `du` is busybox. `-b` and `-x` both
+    // work on either. Measured on coreutils 9.4 and busybox 1.37.
+    const std::vector<std::string> argv{std::string{guest_du}, "-bx", "-d", std::to_string(options_.depth),
+                                        "/"};
+    const auto measured = host_->run_as_root(distro_.name, argv, options_.timeout);
+    if (!measured.has_value()) {
+        return std::unexpected(measured.error());
+    }
+    // `du` exits non-zero when it could not read *something*, which on a running
+    // guest is normal -- /proc entries come and go. What it did read is still
+    // worth reporting, so the exit code is a note rather than a failure.
+    if (!measured->succeeded()) {
+        report.notes.emplace_back("du could not read every directory; some may be missing or undercounted");
+    }
+
+    std::vector<UsageDirectory> found = parse_du_listing(measured->standard_output);
+    if (found.empty()) {
+        report.notes.emplace_back("du reported no directories; the breakdown is empty");
+        return {};
+    }
+
+    // `/` itself is the whole disk, which `guest_used` already says. Repeating it
+    // as the largest directory would be a row that answers nothing.
+    std::erase_if(found, [](const UsageDirectory& entry) { return entry.depth == 0; });
+
+    for (UsageDirectory& directory : found) {
+        attribute(directory, report.entries);
+    }
+
+    std::ranges::sort(found, [](const UsageDirectory& left, const UsageDirectory& right) {
+        return left.bytes > right.bytes;
+    });
+    if (options_.top != 0 && found.size() > options_.top) {
+        found.resize(options_.top);
+    }
+    report.directories = std::move(found);
+    return {};
+}
+
 Result<UsageReport> UsageOperation::measure(const std::function<void(std::string_view)>& progress) {
     if (!distro_.is_wsl2()) {
         return fail(ErrorCode::Preflight,
@@ -210,6 +316,13 @@ Result<UsageReport> UsageOperation::measure(const std::function<void(std::string
 
     if (options_.top != 0 && report.entries.size() > options_.top) {
         report.entries.resize(options_.top);
+    }
+
+    // After the catalogue, so the attribution has something to attribute to.
+    if (options_.by_directory) {
+        if (const Status walked = measure_directories(report, progress); !walked.has_value()) {
+            return std::unexpected(walked.error());
+        }
     }
     return report;
 }
