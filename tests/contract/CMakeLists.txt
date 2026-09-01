@@ -5,6 +5,7 @@ wsldisk_add_test_suite(wsldisk_contract_tests contract
     disk_info_contract_test.cpp
     distro_contract_test.cpp
     filesystem_contract_test.cpp
+    filesystem_copy_contract_test.cpp
     filesystem_scan_contract_test.cpp
     orphans_contract_test.cpp
     registry_contract_test.cpp
