@@ -10,6 +10,7 @@
 #include "orphans_command.h"
 #include "relink_command.h"
 #include "trim_command.h"
+#include "usage_command.h"
 
 namespace CLI {
 class App;
@@ -29,6 +30,7 @@ struct CommandOptions {
     MoveOptions move;
     RelinkOptions relink;
     TrimOptions trim;
+    UsageCommandOptions usage;
     CompactCommandOptions compact;
     ConfigOptions config;
     CompletionOptions completion;

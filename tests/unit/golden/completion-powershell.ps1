@@ -11,6 +11,7 @@ $script:WsldiskCommands = @{
     'move' = @('--help', '-h', '--keep-source', '--json', '--verbose', '-v', '--yes', '-y', '--dry-run', '--log')
     'relink' = @('--help', '-h', '--json', '--verbose', '-v', '--yes', '-y', '--dry-run', '--log')
     'trim' = @('--help', '-h', '--json', '--verbose', '-v', '--yes', '-y', '--dry-run', '--log')
+    'usage' = @('--help', '-h', '--top', '--json', '--verbose', '-v', '--yes', '-y', '--dry-run', '--log')
     'compact' = @('--help', '-h', '--json', '--verbose', '-v', '--yes', '-y', '--dry-run', '--log', '--all', '--file', '--no-trim', '--restart', '--shutdown')
     'config' = @('path', 'get', 'set', 'edit', '--help', '-h', '--json', '--verbose', '-v', '--yes', '-y', '--dry-run', '--log')
     'completion' = @('--help', '-h', '--verbose', '-v', '--yes', '-y', '--dry-run', '--log')
@@ -38,7 +39,7 @@ function script:WsldiskPaths {
     }
 }
 
-$script:WsldiskDistroSlots = @('info:0', 'move:0', 'relink:0', 'trim:0', 'compact:0')
+$script:WsldiskDistroSlots = @('info:0', 'move:0', 'relink:0', 'trim:0', 'usage:0', 'compact:0')
 $script:WsldiskPathSlots = @('move:1', 'relink:1')
 
 Register-ArgumentCompleter -Native -CommandName wsldisk -ScriptBlock {

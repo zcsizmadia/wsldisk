@@ -37,7 +37,9 @@ add_library(wsldisk_cli_lib STATIC
     render.cpp
     render.h
     trim_command.cpp
-    trim_command.h)
+    trim_command.h
+    usage_command.cpp
+    usage_command.h)
 
 add_library(wsldisk::cli ALIAS wsldisk_cli_lib)
 

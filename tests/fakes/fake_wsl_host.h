@@ -28,6 +28,7 @@ public:
         : IWslHost(),
           running_(std::move(other.running_)),
           responses_(std::move(other.responses_)),
+          argument_responses_(std::move(other.argument_responses_)),
           calls_(std::move(other.calls_)),
           running_failure_(std::move(other.running_failure_)),
           terminate_failure_(std::move(other.terminate_failure_)),
@@ -63,6 +64,20 @@ public:
     /// answer differently, which one canned response cannot do.
     void on_commands(std::string program, std::vector<WslCommandResult> results) {
         responses_[std::move(program)] = std::move(results);
+    }
+
+    /// Scripts an answer for a call whose argv contains `argument`.
+    ///
+    /// `usage` runs `du` once per catalogue path and needs a different answer
+    /// for each. Keying on `argv[0]` cannot say that, and a positional list
+    /// would tie every test to the catalogue's current order -- so adding an
+    /// entry to `caches.toml` would break tests that have nothing to do with it.
+    ///
+    /// Checked before the `argv[0]` responses, so a test can script one path and
+    /// leave a catch-all for the rest.
+    void on_command_for(std::string program, std::string argument, WslCommandResult result) {
+        argument_responses_.push_back(
+            ArgumentResponse{std::move(program), std::move(argument), std::move(result)});
     }
 
     void fail_running(Error error) { running_failure_ = std::move(error); }
@@ -146,6 +161,15 @@ public:
         commands_.push_back(Invocation{
             .distribution = std::string{name}, .argv = {argv.begin(), argv.end()}, .timeout = timeout});
 
+        for (const ArgumentResponse& scripted : argument_responses_) {
+            if (scripted.program != argv.front()) {
+                continue;
+            }
+            if (std::ranges::find(argv, scripted.argument) != argv.end()) {
+                return scripted.result;
+            }
+        }
+
         const auto response = responses_.find(argv.front());
         if (response == responses_.end() || response->second.empty()) {
             return WslCommandResult{};
@@ -174,8 +198,15 @@ public:
 private:
     // Mutable so the const interface can still record what happened; the fake is
     // a test double, not a value type.
+    struct ArgumentResponse {
+        std::string program;
+        std::string argument;
+        WslCommandResult result;
+    };
+
     mutable std::vector<std::string> running_;
     std::map<std::string, std::vector<WslCommandResult>> responses_;
+    std::vector<ArgumentResponse> argument_responses_;
     mutable std::map<std::string, std::size_t> calls_;
     std::optional<Error> running_failure_;
     std::optional<Error> terminate_failure_;

@@ -19,6 +19,7 @@ void add_all_commands(CLI::App& app, CommandOptions& options) {
     add_move_command(app, options.global, options.move);
     add_relink_command(app, options.global, options.relink);
     add_trim_command(app, options.global, options.trim);
+    add_usage_command(app, options.global, options.usage);
     add_compact_command(app, options.global, options.compact);
     add_config_command(app, options.global, options.config);
     add_completion_command(app, options.global, options.completion);

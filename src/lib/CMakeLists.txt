@@ -17,6 +17,16 @@ endif()
 
 configure_file(version.cpp.in "${CMAKE_CURRENT_BINARY_DIR}/version.cpp" @ONLY)
 
+# The cache catalogue is data the tool carries rather than a file beside it, so
+# `usage` and `clean` cannot get out of step with the binary and there is nothing
+# extra to install. Editing the TOML re-runs CMake, because it is listed as a
+# configure dependency.
+set(caches_toml "${CMAKE_SOURCE_DIR}/data/caches.toml")
+set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS "${caches_toml}")
+file(READ "${caches_toml}" WSLDISK_CACHES_TOML)
+configure_file(model/catalogue_data.h.in
+               "${CMAKE_CURRENT_BINARY_DIR}/generated/model/catalogue_data.h" @ONLY)
+
 add_library(wsldisk_lib STATIC
     errors.cpp
     errors.h
@@ -24,6 +34,8 @@ add_library(wsldisk_lib STATIC
     version.h
     "${CMAKE_CURRENT_BINARY_DIR}/version.cpp"
 
+    model/catalogue.cpp
+    model/catalogue.h
     model/config.cpp
     model/config.h
     model/disk_info.cpp
@@ -51,6 +63,8 @@ add_library(wsldisk_lib STATIC
     ops/runner.h
     ops/trim.cpp
     ops/trim.h
+    ops/usage.cpp
+    ops/usage.h
 
     platform/clock.cpp
     platform/clock.h
@@ -72,11 +86,13 @@ add_library(wsldisk_lib STATIC
 
 add_library(wsldisk::lib ALIAS wsldisk_lib)
 
-target_include_directories(wsldisk_lib PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}")
+target_include_directories(wsldisk_lib
+    PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}"
+    PRIVATE "${CMAKE_CURRENT_BINARY_DIR}/generated/model")
 
 # VirtDisk.lib is the Virtual Disk Service; it is not in the default link set.
-# toml++ is PRIVATE: config.cpp is the only translation unit that parses TOML,
-# and the Config struct it hands back is plain C++.
+# toml++ is PRIVATE: config.cpp and catalogue.cpp are the only translation units
+# that parse TOML, and what they hand back is plain C++.
 find_package(tomlplusplus CONFIG REQUIRED)
 target_link_libraries(wsldisk_lib
     PUBLIC wsldisk::flags

@@ -21,6 +21,7 @@ _wsldisk() {
         'move:Move a distribution'\''s virtual disk to another directory'
         'relink:Point a distribution at a virtual disk that has been moved'
         'trim:Tell one distribution'\''s filesystem to release unused blocks'
+        'usage:Show where the space inside a distribution went'
         'compact:Reclaim the unused space in a virtual disk'
         'config:Show or change wsldisk'\''s settings'
         'completion:Print a shell completion script for wsldisk'
@@ -120,6 +121,20 @@ _wsldisk() {
                     _arguments \
                         '--help' \
                         '-h' \
+                        '--json' \
+                        '--verbose' \
+                        '-v' \
+                        '--yes' \
+                        '-y' \
+                        '--dry-run' \
+                        '--log' \
+                        '1: :_wsldisk_distros'
+                    ;;
+                usage)
+                    _arguments \
+                        '--help' \
+                        '-h' \
+                        '--top' \
                         '--json' \
                         '--verbose' \
                         '-v' \

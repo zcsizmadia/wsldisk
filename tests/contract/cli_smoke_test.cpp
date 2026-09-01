@@ -156,6 +156,20 @@ TEST_CASE("the executable reaches the relink command", "[contract][cli]") {
     CHECK(result.output.find("error:") != std::string::npos);
 }
 
+TEST_CASE("the executable reaches the usage command", "[contract][cli]") {
+    // The `usage` branch of the subcommand dispatch. A name that cannot exist,
+    // so nothing on this machine is measured by running the suite.
+    const ProcessOutput result = run_process(quoted_exe() + " usage wsldisk-no-such-distro");
+
+    INFO(result.output);
+    CHECK((result.exit_code == 10 || result.exit_code == 3));
+    CHECK(result.output.find("error:") != std::string::npos);
+}
+
+TEST_CASE("usage needs a distribution", "[contract][cli]") {
+    CHECK(run_process(quoted_exe() + " usage").exit_code == 2);
+}
+
 TEST_CASE("the executable reaches the move command", "[contract][cli]") {
     // The `move` branch of the subcommand dispatch. A name that cannot exist, so
     // the lookup fails before anything is copied -- running the suite never
@@ -292,6 +306,9 @@ TEST_CASE("every command's --json stdout is empty or parses, however it ends", "
         "trim wsldisk-no-such-distro --json",
         "trim wsldisk-no-such-distro --json --dry-run",
         "trim --json",  // missing positional
+        "usage wsldisk-no-such-distro --json",
+        "usage wsldisk-no-such-distro --json --dry-run",
+        "usage --json",  // missing positional
         "move wsldisk-no-such-distro wsldisk-no-such-directory --json",
         "move wsldisk-no-such-distro wsldisk-no-such-directory --json --dry-run",
         "move --json",  // missing positionals
